@@ -8,7 +8,7 @@ X_LOW = -5
 X_HIGH = 5
 
 
-""" sinosoidal data """
+""" sinusoidal data """
 
 # sinusoid function + gaussian noise
 def _sinusoid(x, amplitude=1.0, period=1.0, x_shift=0.0, y_shift=0.0, noise_std=0.0):
