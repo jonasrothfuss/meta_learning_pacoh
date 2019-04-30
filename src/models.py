@@ -13,12 +13,12 @@ class LearnedMean(torch.nn.Sequential):
     def __init__(self, input_dim=2, num_layers=2, layer_width=64):
         super(LearnedMean, self).__init__()
         self.add_module('linear_1', torch.nn.Linear(input_dim, layer_width))
-        self.add_module('tanh_1', torch.nn.Tanh())
+        self.add_module('Tanh_1', torch.nn.Tanh())
         for i in range(2,num_layers):
             self.add_module("linear_{}".format(i), torch.nn.Linear(layer_width, layer_width))
-            self.add_module("tanh_{}".format(i).format(i), torch.nn.Tanh())
+            self.add_module("Tanh_{}".format(i).format(i), torch.nn.Tanh())
         self.add_module("linear_{}".format(num_layers), torch.nn.Linear(layer_width, int(layer_width/2)))
-        self.add_module("tanh_{}".format(num_layers), torch.nn.Tanh())
+        self.add_module("Tanh_{}".format(num_layers), torch.nn.Tanh())
         self.add_module("linear_{}".format(num_layers+1), torch.nn.Linear(int(layer_width/2), 1))
 
 
@@ -27,12 +27,12 @@ class LearnedKernel(torch.nn.Sequential):
     def __init__(self, input_dim=2, num_layers=2, layer_width=64):
         super(LearnedKernel, self).__init__()
         self.add_module('linear_1', torch.nn.Linear(input_dim, layer_width))
-        self.add_module('tanh_1', torch.nn.Tanh())
+        self.add_module('Tanh_1', torch.nn.Tanh())
         for i in range(2, num_layers):
             self.add_module("linear_{}".format(i), torch.nn.Linear(layer_width, layer_width))
-            self.add_module("tanh_{}".format(i).format(i), torch.nn.Tanh())
+            self.add_module("Tanh_{}".format(i).format(i), torch.nn.Tanh())
         self.add_module("linear_{}".format(num_layers), torch.nn.Linear(layer_width, int(layer_width/2)))
-        self.add_module("tanh_{}".format(num_layers), torch.nn.Tanh())
+        self.add_module("Tanh_{}".format(num_layers), torch.nn.Tanh())
         self.add_module("linear_{}".format(num_layers+1), torch.nn.Linear(int(layer_width/2), 2))
 
 
@@ -49,8 +49,6 @@ class LearnedGPRegressionModel(gpytorch.models.ExactGP):
         # feed through kernel NN
         if self.learned_kernel is not None:
             projected_x = self.learned_kernel(x)
-            projected_x = projected_x - projected_x.min(0)[0]
-            projected_x = 2 * (projected_x / projected_x.max(0)[0]) - 1
         else:
             projected_x = x
 

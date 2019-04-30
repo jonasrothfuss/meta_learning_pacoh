@@ -69,16 +69,16 @@ def compute_test_scores():
         model_test.eval()
         likelihood.eval()
 
-        with torch.no_grad(), gpytorch.settings.use_toeplitz(False):
+        with torch.no_grad(),  gpytorch.settings.use_toeplitz(False):
             preds = model_test(x_test_tensor)
             means_pred = preds.mean
-            #test_likelihoods.append(mll_test(preds, y_test_tensor).item())
+            test_likelihoods.append(mll_test(preds, y_test_tensor).item())
             test_mses.append(mse_test(means_pred, y_test_tensor).item())
 
-    test_mse, test_mse_std = float(np.mean(test_mses)), float(np.std(test_mses))
-    #test_likelihood, test_likelihood_std = float(np.mean(test_likelihoods)), float(np.std(test_likelihoods))
 
-    test_likelihood, test_likelihood_std = 0.0, 0.0
+    test_mse, test_mse_std = float(np.mean(test_mses)), float(np.std(test_mses))
+    test_likelihood, test_likelihood_std = float(np.mean(test_likelihoods)), float(np.std(test_likelihoods))
+
     return test_mse, test_likelihood, test_mse_std, test_likelihood_std
 
 
@@ -123,7 +123,7 @@ for i in range(N_STEPS):
 
     if i % 1000 == 0:
         test_mse, test_likelihood, _, _ = compute_test_scores()
-        print("Step {}|  train-loss = {:.4f}, test-mse = {:.4f}".format(i, np.mean(loss_array), test_mse))
+        print("Step {}|  train-mll = {:.4f}, test-mll = {:.4f}".format(i, np.mean(loss_array), - test_likelihood))
         loss_array = []
 
 
