@@ -2,7 +2,7 @@ import torch
 import gpytorch
 import numpy as np
 
-from src.data_sim import sample_sinusoid_data
+from src.data_sim import sample_sinusoid_regression_data
 from src.models import LearnedGPRegressionModel, LearnedMean, LearnedKernel
 
 # set seed
@@ -16,13 +16,13 @@ N_TASKS_TEST = 100
 N_SAMPLES_TEST_CONTEXT = 100
 N_SAMPLES_TEST = 100
 
-train_data_tuples = [sample_sinusoid_data(N_SAMPLES_TRAIN) for _ in range(N_TASKS_TRAIN)]
-test_data_tuples = [sample_sinusoid_data(N_SAMPLES_TEST_CONTEXT + N_SAMPLES_TEST) for _ in range(N_TASKS_TEST)]
+train_data_tuples = [sample_sinusoid_regression_data(N_SAMPLES_TRAIN) for _ in range(N_TASKS_TRAIN)]
+test_data_tuples = [sample_sinusoid_regression_data(N_SAMPLES_TEST_CONTEXT + N_SAMPLES_TEST) for _ in range(N_TASKS_TEST)]
 
 
 """ Training """
 
-N_STEPS = 50000 #TODO
+N_STEPS = 50000
 MODEL_CLASS = "both"
 
 print("Training ...")

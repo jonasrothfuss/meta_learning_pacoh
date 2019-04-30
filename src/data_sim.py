@@ -51,7 +51,7 @@ def sample_sinusoid_regression_data(size=1, amp_low=0.2, amp_high=2.0, y_shift_s
     return X, Y
 
 
-def sample_sinusoid_regression_data(size=1, amp_low=0.2, amp_high=2.0, y_shift_std=0.3, noise_std=0.1):
+def sample_sinusoid_classification_data(size=1, amp_low=0.2, amp_high=2.0, y_shift_std=0.3, noise_std=0.1):
     """ samples classification data with a sinusoidal separation function
            Args:
                  amp_low (float): min amplitude value
@@ -70,7 +70,7 @@ def sample_sinusoid_regression_data(size=1, amp_low=0.2, amp_high=2.0, y_shift_s
     f = _sample_sinusoid(amp_low=amp_low, amp_high=amp_high, y_shift_std=y_shift_std, noise_std=noise_std)
     X_1 = np.random.uniform(X_LOW, X_HIGH, size=size + (1,)) # first data dimension
     Y = np.random.uniform(Y_LOW, Y_HIGH, size=size + (1,)) # second data dimension
-    target = ((f(X_1) > Y ) * 2 - 1).flatten() # convert {0,1} to {-1, 1} data
+    target = np.sign(Y - f(X_1)).flatten()
     X = np.concatenate([X_1, Y], axis=-1)
     assert np.all(np.logical_or(target == 1.0, target -1.0))
     return X, target
