@@ -10,12 +10,12 @@ from src.models import LearnedGPClassificationModel, LearnedMean, LearnedKernel
 np.random.seed(22)
 
 """ Simulate meta-train and meta-test data """
-N_TASKS_TRAIN = 10 #TODO set to 50
-N_SAMPLES_TRAIN = 50 # TOOD set to 100
+N_TASKS_TRAIN = 10
+N_SAMPLES_TRAIN = 20 # TOOD set to 100
 
 N_TASKS_TEST = 10
-N_SAMPLES_TEST_CONTEXT = 50
-N_SAMPLES_TEST = 50
+N_SAMPLES_TEST_CONTEXT = 20
+N_SAMPLES_TEST = 200
 
 train_data_tuples = [sample_sinusoid_classification_data(N_SAMPLES_TRAIN) for _ in range(N_TASKS_TRAIN)]
 test_data_tuples = [sample_sinusoid_classification_data(N_SAMPLES_TEST_CONTEXT + N_SAMPLES_TEST) for _ in range(N_TASKS_TEST)]
@@ -28,9 +28,9 @@ test_data_tuples = [sample_sinusoid_classification_data(N_SAMPLES_TEST_CONTEXT +
 LR_VI = 1e-2
 LR_params = 1e-3
 N_STEPS_META_TRAIN = 2000 #0
-N_STEPS_TEST_TRAIN = 200 #0
+N_STEPS_TEST_TRAIN = 500 #0
 WEIGHT_DECAY = 1e-3
-MODEL_CLASS = "vanilla"
+MODEL_CLASS = "both"
 SHARE_SHALLOW_PRIOR_PARAMS = True # whether to share parameters of the SE kernel
 
 print(MODEL_CLASS)
@@ -152,7 +152,7 @@ for task_id, (test_x, test_t) in enumerate(test_data_tuples):
     task_params = [{'params': list(test_model.variational_parameters())}] # VI parameters of q(u), i.e. the mean and cov matrix
 
     if not SHARE_SHALLOW_PRIOR_PARAMS:
-        task_params.append({'params': gp_model.covar_module.parameters(), 'lr': LR_params})
+        task_params.append({'params': test_model.covar_module.parameters(), 'lr': LR_params})
 
     # now only optimize over task params
     test_optimizer = torch.optim.Adam(task_params, lr=LR_VI)
