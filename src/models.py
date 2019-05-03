@@ -12,32 +12,23 @@ from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.variational import VariationalStrategy
 
 
-class LearnedMean(torch.nn.Sequential):
-    """Trainable neural network mean function for GPs."""
-    def __init__(self, input_dim=2, num_layers=2, layer_width=64):
-        super(LearnedMean, self).__init__()
-        self.add_module('linear_1', torch.nn.Linear(input_dim, layer_width))
-        self.add_module('Tanh_1', torch.nn.Tanh())
-        for i in range(2,num_layers):
-            self.add_module("linear_{}".format(i), torch.nn.Linear(layer_width, layer_width))
-            self.add_module("Tanh_{}".format(i).format(i), torch.nn.Tanh())
-        self.add_module("linear_{}".format(num_layers), torch.nn.Linear(layer_width, int(layer_width/2)))
-        self.add_module("Tanh_{}".format(num_layers), torch.nn.Tanh())
-        self.add_module("linear_{}".format(num_layers+1), torch.nn.Linear(int(layer_width/2), 1))
-
-
-class LearnedKernel(torch.nn.Sequential):
+class NeuralNetwork(torch.nn.Sequential):
     """Trainable neural network kernel function for GPs."""
-    def __init__(self, input_dim=2, num_layers=2, layer_width=64):
-        super(LearnedKernel, self).__init__()
-        self.add_module('linear_1', torch.nn.Linear(input_dim, layer_width))
+    def __init__(self, input_dim=2, output_dim=2, layer_sizes=(64, 64), weight_norm=True):
+        super(NeuralNetwork, self).__init__()
+        assert len(layer_sizes) >= 1, 'must be at least one hidden layer'
+
+        if weight_norm:
+            _normalize = torch.nn.utils.weight_norm
+        else:
+            _normalize = lambda x: x
+
+        self.add_module('linear_1', _normalize(torch.nn.Linear(input_dim, layer_sizes[0])))
         self.add_module('Tanh_1', torch.nn.Tanh())
-        for i in range(2, num_layers):
-            self.add_module("linear_{}".format(i), torch.nn.Linear(layer_width, layer_width))
-            self.add_module("Tanh_{}".format(i).format(i), torch.nn.Tanh())
-        self.add_module("linear_{}".format(num_layers), torch.nn.Linear(layer_width, int(layer_width/2)))
-        self.add_module("Tanh_{}".format(num_layers), torch.nn.Tanh())
-        self.add_module("linear_{}".format(num_layers+1), torch.nn.Linear(int(layer_width/2), 2))
+        for i in range(1, len(layer_sizes)):
+            self.add_module("linear_{}".format(i+1), _normalize(torch.nn.Linear(layer_sizes[i-1], layer_sizes[i])))
+            self.add_module("Tanh_{}".format(i+1), torch.nn.Tanh())
+        self.add_module("linear_{}".format(len(layer_sizes)+1), _normalize(torch.nn.Linear(layer_sizes[-1], output_dim)))
 
 
 class LearnedGPRegressionModel(ExactGP):
@@ -69,7 +60,7 @@ class LearnedGPRegressionModel(ExactGP):
 class LearnedGPClassificationModel(gpytorch.models.AbstractVariationalGP):
 
     def __init__(self, train_x, learned_kernel=None, learned_mean=None, mean_module=None, covar_module=None,
-                 input_dim=2):
+                 feature_dim=2):
 
         variational_distribution = CholeskyVariationalDistribution(train_x.size(0))
         variational_strategy = VariationalStrategy(self, train_x, variational_distribution)
@@ -81,7 +72,7 @@ class LearnedGPClassificationModel(gpytorch.models.AbstractVariationalGP):
             self.mean_module = mean_module
 
         if covar_module is None:
-            self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=input_dim))
+            self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=feature_dim))
         else:
             self.covar_module = covar_module
 
