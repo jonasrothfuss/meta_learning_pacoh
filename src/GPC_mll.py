@@ -8,7 +8,26 @@ from src.models import LearnedGPClassificationModel, NeuralNetwork
 class GPClassificationLearned:
 
     def __init__(self, train_x, train_t, mode='both', lr_params=1e-3, lr_vi=1e-2, weight_decay=1e-3, feature_dim=2,
-                 num_iter_fit=1000, covar_module=None, mean_module=None, mean_n_layers=(64, 64), kernel_nn_layers=(64, 64)):
+                 num_iter_fit=5000, covar_module=None, mean_module=None, mean_n_layers=(64, 64), kernel_nn_layers=(64, 64)):
+        """
+        Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
+        neural network mean and covariance functions
+
+        Args:
+            train_x: (ndarray) train inputs - shape: (n_sampls, ndim_x)
+            train_t: (ndarray) train targets - shape: (n_sampls, 1)
+            mode: (str) specifying how to parametrize the prior. Either one of
+                    ['learned_mean', 'learned_kernel', 'both', 'vanilla']
+            lr_params: (float) learning rate for prior parameters
+            lr_vi: (float) learning rate for variational parameters, i.e. params of Gaussian q(u)
+            weight_decay: (float) weight decay penalty
+            feature_dim: (int) output dimensionality of NN feature map for kernel function
+            num_iter_fit: (int) number of gradient steps for fitting the parameters
+            covar_module: (gpytorch.mean.Kernel) optional kernel module, default: RBF kernel
+            mean_module: (gpytorch.mean.Mean) optional mean module, default: ZeroMean
+            mean_n_layers: (tuple) hidden layer sizes of mean NN
+            kernel_nn_layers: (tuple) hidden layer sizes of kernel NN
+        """
 
         assert mode in ['learned_mean', 'learned_kernel', 'both', 'vanilla']
         assert lr_params <= lr_vi, "parameter learning rate should be smaller than VI learning rate"
@@ -53,6 +72,12 @@ class GPClassificationLearned:
         self.fitted = False
 
     def fit(self, verbose=True):
+        """
+        fits the VI and prior parameters of the  GPC model
+
+        Args:
+            verbose: (boolean) whether to print training progress
+        """
         self.model.train()
         self.likelihood.train()
 
@@ -77,23 +102,44 @@ class GPClassificationLearned:
         self.likelihood.eval()
 
     def predict(self, test_x):
-        test_x_tensor = torch.from_numpy(test_x).contiguous().float()
+        """
+        computes class probabilities and predictions
 
-        pred_prob = self.likelihood(self.model(test_x_tensor)).mean
-        pred_label = torch.sign(pred_prob - 0.5)
+        Args:
+            test_x: (ndarray) query input data of shape (n_samples, ndim_x)
 
-        return pred_prob.numpy(), pred_label.numpy()
+        Returns:
+            (pred_prob, pred_label) predicted probabilities P(t=1|x) and predicted labels {-1, 1}
+        """
+        with torch.no_grad():
+            test_x_tensor = torch.from_numpy(test_x).contiguous().float()
+
+            pred_prob = self.likelihood(self.model(test_x_tensor)).mean
+            pred_label = torch.sign(pred_prob - 0.5)
+
+            return pred_prob.numpy(), pred_label.numpy()
 
 
     def eval(self, test_x, test_t):
-        test_x_tensor = torch.from_numpy(test_x).contiguous().float()
-        test_t_tensor = torch.from_numpy(test_t).contiguous().float()
+        """
+        Computes the marginal log likelihood and the accurary on test data
 
-        output = self.model(test_x_tensor)
-        mll = self.mll(output, test_t_tensor)
+        Args:
+            test_x: (ndarray) test input data of shape (n_samples, ndim_x)
+            test_t: (ndarray) test target data of shape (n_samples, 1)
 
-        pred_prob = self.likelihood(output).mean
-        pred_label = torch.sign(pred_prob - 0.5)
-        accuracy = torch.mean((pred_label == test_t_tensor).float())
+        Returns: (mll, accuracy)
 
-        return mll.item(), accuracy.item()
+        """
+        with torch.no_grad():
+            test_x_tensor = torch.from_numpy(test_x).contiguous().float()
+            test_t_tensor = torch.from_numpy(test_t).contiguous().float()
+
+            output = self.model(test_x_tensor)
+            mll = self.mll(output, test_t_tensor)
+
+            pred_prob = self.likelihood(output).mean
+            pred_label = torch.sign(pred_prob - 0.5)
+            accuracy = torch.mean((pred_label == test_t_tensor).float())
+
+            return mll.item(), accuracy.item()
