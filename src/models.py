@@ -7,7 +7,6 @@ Copyright 2018 ETH Zurich
 import torch
 import gpytorch
 
-from gpytorch.models import AbstractVariationalGP, ExactGP
 from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.variational import VariationalStrategy
 
@@ -31,12 +30,19 @@ class NeuralNetwork(torch.nn.Sequential):
         self.add_module("linear_{}".format(len(layer_sizes)+1), _normalize(torch.nn.Linear(layer_sizes[-1], output_dim)))
 
 
-class LearnedGPRegressionModel(ExactGP):
+class LearnedGPRegressionModel(gpytorch.models.ExactGP):
     """GP model which can take a learned mean and learned kernel function."""
-    def __init__(self, train_x, train_y, likelihood, learned_kernel=None, learned_mean=None, input_dim=2):
+    def __init__(self, train_x, train_y, likelihood, learned_kernel=None, learned_mean=None, mean_module=None, covar_module=None,
+                 feature_dim=2):
         super(LearnedGPRegressionModel, self).__init__(train_x, train_y, likelihood)
-        self.mean_module = gpytorch.means.ZeroMean()
-        self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=input_dim))
+
+        if mean_module is None:
+            self.mean_module = gpytorch.means.ZeroMean()
+        else:
+            self.mean_module = mean_module
+
+        self.covar_module = covar_module
+
         self.learned_kernel = learned_kernel
         self.learned_mean = learned_mean
 
@@ -47,11 +53,11 @@ class LearnedGPRegressionModel(ExactGP):
         else:
             projected_x = x
 
-        # feed through mean NN
+        # feed through mean module
         if self.learned_mean is not None:
             mean_x = self.learned_mean(x).squeeze()
         else:
-            mean_x = self.mean_module(projected_x)
+            mean_x = self.mean_module(projected_x).squeeze()
 
         covar_x = self.covar_module(projected_x)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
