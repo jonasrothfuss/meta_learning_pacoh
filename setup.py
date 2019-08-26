@@ -11,7 +11,7 @@ setuptools.setup(
     description="Meta-Learning Gausssian Proccess Priors",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    package_dir='src',
+    package_dir={'': 'src'},
     packages=setuptools.find_packages(),
     install_requires=[
         'torch',
