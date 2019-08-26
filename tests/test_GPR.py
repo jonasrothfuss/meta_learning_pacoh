@@ -10,6 +10,8 @@ class TestGPR_mll(unittest.TestCase):
     def setUp(self):
         ## --- generate toy data --- #
 
+        torch.manual_seed(22)
+
         # train
         n_train_points = 60
         self.x_train = np.linspace(-2, 2, num=n_train_points)
@@ -84,7 +86,7 @@ class TestGPR_mll(unittest.TestCase):
 
 
             gpr_model_learn_kernel = GPRegressionLearned(self.x_train, self.y_train_sin, learning_mode=learning_mode,
-                                                    num_iter_fit=200, mean_module='constant', covar_module='NN',
+                                                    num_iter_fit=500, mean_module='constant', covar_module='NN',
                                                     kernel_nn_layers=(16, 16), mean_nn_layers=(16, 16))
             gpr_model_learn_kernel.fit(valid_x=self.x_train, valid_t=self.y_train_sin)
 
