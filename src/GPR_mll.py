@@ -5,12 +5,13 @@ import time
 import numpy as np
 
 from src.models import LearnedGPRegressionModel, NeuralNetwork
+from src.util import _handle_input_dimensionality
 
 
 class GPRegressionLearned:
 
-    def __init__(self, train_x, train_t, learning_mode='both', lr_params=1e-3, lr_vi=1e-2, weight_decay=1e-3, feature_dim=2,
-                 num_iter_fit=5000, covar_module='NN', mean_module='NN', mean_nn_layers=(64, 64), kernel_nn_layers=(64, 64)):
+    def __init__(self, train_x, train_t, learning_mode='both', lr_params=1e-3, weight_decay=1e-3, feature_dim=2,
+                 num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32)):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -18,10 +19,9 @@ class GPRegressionLearned:
         Args:
             train_x: (ndarray) train inputs - shape: (n_sampls, ndim_x)
             train_t: (ndarray) train targets - shape: (n_sampls, 1)
-            learning_mode: (str) specifying how to parametrize the prior. Either one of
+            learning_mode: (str) specifying which of the GP prior parameters to optimize. Either one of
                     ['learned_mean', 'learned_kernel', 'both', 'vanilla']
             lr_params: (float) learning rate for prior parameters
-            lr_vi: (float) learning rate for variational parameters, i.e. params of Gaussian q(u)
             weight_decay: (float) weight decay penalty
             feature_dim: (int) output dimensionality of NN feature map for kernel function
             num_iter_fit: (int) number of gradient steps for fitting the parameters
@@ -34,9 +34,8 @@ class GPRegressionLearned:
         assert learning_mode in ['learn_mean', 'learn_kernel', 'both', 'vanilla']
         assert mean_module in ['NN', 'constant', 'zero'] or isinstance(mean_module, gpytorch.means.Mean)
         assert covar_module in ['NN', 'SE'] or isinstance(covar_module, gpytorch.kernels.Kernel)
-        assert lr_params <= lr_vi, "parameter learning rate should be smaller than VI learning rate"
 
-        self.lr_params, self.lr_vi, self.weight_decay, self.num_iter_fit = lr_params, lr_vi, weight_decay, num_iter_fit
+        self.lr_params, self.weight_decay, self.num_iter_fit = lr_params, weight_decay, num_iter_fit
 
         # Convert the data into pytorch tensors
         train_x, train_t = _handle_input_dimensionality(train_x, train_t)
@@ -198,20 +197,5 @@ class GPRegressionLearned:
 
             return avg_log_likelihood.item(), rmse.item()
 
-
-""" helper functions """
-
-def _handle_input_dimensionality(x: np.ndarray, y: np.ndarray) -> (np.ndarray, np.ndarray):
-
-    if x.ndim == 1:
-        x = np.expand_dims(x, -1)
-    if y.ndim == 1:
-        y = np.expand_dims(y, -1)
-
-    assert x.shape[0] == y.shape[0]
-    assert x.ndim == 2
-    assert y.ndim == 2
-
-    return x, y
 
 
