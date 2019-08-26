@@ -11,11 +11,11 @@ setuptools.setup(
     description="Meta-Learning Gausssian Proccess Priors",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    package_dir={'': 'src'},
+    package_dir={'meta-gp': 'src'},
     packages=setuptools.find_packages(),
     install_requires=[
-        'torch',
-        'numpy'
+        'numpy',
+        'torch>=1.0.0',
         'gpytorch'
     ],
 )
