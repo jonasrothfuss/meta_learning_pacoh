@@ -85,8 +85,6 @@ class GPRegressionLearned:
                                               covar_module=covar_module, mean_module=mean_module,
                                               feature_dim=feature_dim)
 
-
-
         self.mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.model)
 
 
@@ -105,7 +103,7 @@ class GPRegressionLearned:
 
     def fit(self, verbose=True, valid_x=None, valid_t=None):
         """
-        fits the VI and prior parameters of the  GPC model
+        fits prior parameters of the  GPC model by maximizing the mll of the training data
 
         Args:
             verbose: (boolean) whether to print training progress
@@ -157,7 +155,7 @@ class GPRegressionLearned:
 
     def predict(self, test_x):
         """
-        computes class probabilities and predictions
+        computes the predictive distribution of the targets p(t|test_x, train_x, train_y)
 
         Args:
             test_x: (ndarray) query input data of shape (n_samples, ndim_x)
