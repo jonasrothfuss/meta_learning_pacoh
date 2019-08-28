@@ -243,7 +243,7 @@ class GPRegressionMetaLearned:
             self.nn_mean_fn = NeuralNetwork(input_dim=self.input_dim, output_dim=1, layer_sizes=mean_nn_layers)
             self.shared_parameters.append(
                 {'params': self.nn_mean_fn.parameters(), 'lr': self.lr_params, 'weight_decay': self.weight_decay})
-            self.mean_module = None
+            mean_module = None
         else:
             self.nn_mean_fn = None
 
@@ -254,5 +254,12 @@ class GPRegressionMetaLearned:
         else:
             self.mean_module = mean_module
 
+        # c) add parameters of covar and mean module if desired
+
+        if learning_mode in ["learn_kernel", "both"]:
+            self.shared_parameters.append({'params': self.covar_module.hyperparameters(), 'lr': self.lr_params})
+
+        if learning_mode in ["learn_mean", "both"] and hasattr(self.mean_module, 'hyperparameters'):
+            self.shared_parameters.append({'params': self.mean_module.hyperparameters(), 'lr': self.lr_params})
 
 

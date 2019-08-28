@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 
 from src.GPR_mll import GPRegressionLearned
-from src.GPR__meta_mll import GPRegressionMetaLearned
+from src.GPR_meta_mll import GPRegressionMetaLearned
 from gpytorch.kernels import CosineKernel
 import torch
 
@@ -116,7 +116,7 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         # test
         n_test_datasets = 10
-        n_samples_test_context = 10
+        n_samples_test_context = 5
         n_samples_test = 50
 
         test_data = [sample_sinusoid_regression_data(n_samples_test_context + n_samples_test) for _ in
@@ -128,13 +128,13 @@ class TestGPR_mll_meta(unittest.TestCase):
 
 
     def test_mean_learning_more_datasets(self):
-
+        torch.manual_seed(40)
         # check that more datasets improve performance
 
         # meta-learning with 2 datasets
         gp_meta = GPRegressionMetaLearned(self.train_data_tuples[:2], learning_mode='both', mean_nn_layers=(16, 16),
-                                          kernel_nn_layers=(16, 16), num_iter_fit=1000, covar_module='SE', mean_module='NN',
-                                          weight_decay=0.0)
+                                          kernel_nn_layers=(16, 16), num_iter_fit=2000, covar_module='SE',
+                                          mean_module='NN', weight_decay=0.0)
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
         test_ll_meta_2, test_rsme_meta_2 = gp_meta.eval_datasets(self.test_data_tuples)
@@ -142,7 +142,7 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         # meta-learning with 10 datasets
         gp_meta = GPRegressionMetaLearned(self.train_data_tuples, learning_mode='both', mean_nn_layers=(16, 16),
-                                          kernel_nn_layers=(16, 16), num_iter_fit=1000, covar_module='SE',
+                                          kernel_nn_layers=(16, 16), num_iter_fit=2000, covar_module='SE',
                                           mean_module='NN', weight_decay=0.0)
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
@@ -157,11 +157,12 @@ class TestGPR_mll_meta(unittest.TestCase):
     def test_normal_vs_meta(self):
 
         # check that meta-learning improves upon normal learned GP
+        torch.manual_seed(60)
 
         # meta-learning
-        gp_meta = GPRegressionMetaLearned(self.train_data_tuples, learning_mode='both', mean_nn_layers=(16, 16),
-                                          kernel_nn_layers=(16, 16), num_iter_fit=1000, covar_module='SE', mean_module='NN',
-                                          weight_decay=0.0)
+        gp_meta = GPRegressionMetaLearned(self.train_data_tuples, learning_mode='both', mean_nn_layers=(64, 64),
+                                          covar_module='SE', mean_module='NN', weight_decay=0.0, num_iter_fit=2000)
+
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
         test_ll_meta, test_rsme_meta = gp_meta.eval_datasets(self.test_data_tuples)
@@ -173,10 +174,9 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         for (x_context, t_context, x_test, t_test) in self.test_data_tuples:
 
-            gpr = GPRegressionLearned(x_context, t_context, learning_mode='both', mean_nn_layers=(16, 16),
-                                      kernel_nn_layers=(16, 16), num_iter_fit=1000, covar_module='SE', mean_module='NN',
-                                      weight_decay=0.0)
-            gpr.fit()
+            gpr = GPRegressionLearned(x_context, t_context, learning_mode='both', mean_nn_layers=(64, 64),
+                                      covar_module='SE', mean_module='NN', weight_decay=0.0, num_iter_fit=2000)
+            gpr.fit(valid_x=x_test, valid_t=t_test)
 
             ll_list.append(gpr.eval(x_test, t_test)[0])
 
@@ -206,8 +206,8 @@ def _sample_sinusoid(amp_low=0.2, amp_high=2.0, y_shift_mean=5.0, y_shift_std=0.
     slope = np.random.normal(loc=slope_mean, scale=slope_std)
     return lambda x: slope * x + _sinusoid(x, amplitude=amplitude, y_shift=y_shift, noise_std=noise_std)
 
-def sample_sinusoid_regression_data(size=1, amp_low=0.5, amp_high=1.5, y_shift_mean=5.0, y_shift_std=0.3,
-                                        slope_mean=0.2, slope_std=0.05, noise_std=0.1):
+def sample_sinusoid_regression_data(size=1, amp_low=0.8, amp_high=1.2, y_shift_mean=5.0, y_shift_std=0.1,
+                                        slope_mean=0.2, slope_std=0.01, noise_std=0.02):
     """ samples a sinusoidal function and then data from the respective function
 
         Args:
