@@ -10,8 +10,9 @@ from src.util import _handle_input_dimensionality
 
 class GPRegressionMetaLearned:
 
-    def __init__(self, meta_train_data, learning_mode='both', lr_params=1e-3, weight_decay=1e-3, feature_dim=2,
-                 num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32)):
+    def __init__(self, meta_train_data, learning_mode='both', lr_params=1e-3, weight_decay=0.0, feature_dim=2,
+                 num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
+                 random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -28,6 +29,7 @@ class GPRegressionMetaLearned:
             mean_module: (gpytorch.mean.Mean) optional mean module, default: ZeroMean
             mean_nn_layers: (tuple) hidden layer sizes of mean NN
             kernel_nn_layers: (tuple) hidden layer sizes of kernel NN
+            random_seed: (int) seed for pytorch
         """
 
         assert learning_mode in ['learn_mean', 'learn_kernel', 'both', 'vanilla']
@@ -35,6 +37,9 @@ class GPRegressionMetaLearned:
         assert covar_module in ['NN', 'SE'] or isinstance(covar_module, gpytorch.kernels.Kernel)
 
         self.lr_params, self.weight_decay, self.num_iter_fit, self.feature_dim = lr_params, weight_decay, num_iter_fit, feature_dim
+
+        if random_seed is not None:
+            torch.manual_seed(random_seed)
 
         # Check that data all has the same size
         for i in range(len(meta_train_data)):
@@ -233,7 +238,7 @@ class GPRegressionMetaLearned:
 
         if covar_module is 'SE':
             self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=feature_dim))
-        else:
+        elif isinstance(covar_module, gpytorch.kernels.Kernel):
             self.covar_module = covar_module
 
         # b) determine mean map & module
@@ -243,7 +248,7 @@ class GPRegressionMetaLearned:
             self.nn_mean_fn = NeuralNetwork(input_dim=self.input_dim, output_dim=1, layer_sizes=mean_nn_layers)
             self.shared_parameters.append(
                 {'params': self.nn_mean_fn.parameters(), 'lr': self.lr_params, 'weight_decay': self.weight_decay})
-            mean_module = None
+            self.mean_module = None
         else:
             self.nn_mean_fn = None
 
@@ -251,7 +256,7 @@ class GPRegressionMetaLearned:
             self.mean_module = gpytorch.means.ConstantMean()
         elif mean_module is 'zero':
             self.mean_module = gpytorch.means.ZeroMean()
-        else:
+        elif isinstance(mean_module, gpytorch.means.Mean):
             self.mean_module = mean_module
 
         # c) add parameters of covar and mean module if desired
@@ -259,7 +264,7 @@ class GPRegressionMetaLearned:
         if learning_mode in ["learn_kernel", "both"]:
             self.shared_parameters.append({'params': self.covar_module.hyperparameters(), 'lr': self.lr_params})
 
-        if learning_mode in ["learn_mean", "both"] and hasattr(self.mean_module, 'hyperparameters'):
+        if learning_mode in ["learn_mean", "both"] and self.mean_module is not None:
             self.shared_parameters.append({'params': self.mean_module.hyperparameters(), 'lr': self.lr_params})
 
 

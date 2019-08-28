@@ -109,9 +109,3 @@ class TestMNISTRegressionDataset(unittest.TestCase):
                 for (x_train, t_train) in data_test:
                     assert x_train.shape[0] == t_train.shape[0]
                     assert x_train.shape[1] == 2
-
-
-
-
-
-        #data_train = dataset.generate_meta_train_data(n_tasks=5, n_samples=20)

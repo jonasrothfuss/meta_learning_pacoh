@@ -30,6 +30,21 @@ class TestGPR_mll(unittest.TestCase):
         self.y_test_two = self.x_test * 0 + 2
         self.y_test_sin = np.sin(4 * self.x_test)
 
+    def test_random_seed_consistency(self):
+        gpr_model_1 = GPRegressionLearned(self.x_train, self.y_train_two, learning_mode='both',
+                                        num_iter_fit=5, mean_module='NN', covar_module='NN', random_seed=22)
+
+        gpr_model_2 = GPRegressionLearned(self.x_train, self.y_train_two, learning_mode='both',
+                                        num_iter_fit=5, mean_module='NN', covar_module='NN', random_seed=22)
+
+        gpr_model_1.fit()
+        t_predict_1 = gpr_model_1.predict(self.x_test)
+
+        gpr_model_2.fit()
+        t_predict_2 = gpr_model_2.predict(self.x_test)
+
+        self.assertTrue(np.array_equal(t_predict_1, t_predict_2))
+
     def test_mean_learning(self):
         for mean_module in ['NN', 'constant']:
 
@@ -126,6 +141,22 @@ class TestGPR_mll_meta(unittest.TestCase):
         self.test_data_tuples = [(x[:n_samples_test_context], t[:n_samples_test_context],
                                   x[n_samples_test_context:], t[n_samples_test_context:]) for (x, t) in test_data]
 
+
+    def test_random_seed_consistency(self):
+        gp_meta_1 = GPRegressionMetaLearned(self.train_data_tuples[:2], learning_mode='both', num_iter_fit=5,
+                                            covar_module='NN', mean_module='NN', random_seed=22)
+
+        gp_meta_2 = GPRegressionMetaLearned(self.train_data_tuples[:2], learning_mode='both', num_iter_fit=5,
+                                            covar_module='NN', mean_module='NN', random_seed=22)
+
+        gp_meta_1.meta_fit(valid_tuples=self.test_data_tuples)
+        gp_meta_2.meta_fit(valid_tuples=self.test_data_tuples)
+
+        for (x_context, t_context, x_test, _) in self.test_data_tuples[:3]:
+            t_predict_1 = gp_meta_1.predict(x_context, t_context, x_test)
+            t_predict_2 = gp_meta_2.predict(x_context, t_context, x_test)
+
+            self.assertTrue(np.array_equal(t_predict_1, t_predict_2))
 
     def test_mean_learning_more_datasets(self):
         torch.manual_seed(40)

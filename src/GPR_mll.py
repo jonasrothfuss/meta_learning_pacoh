@@ -10,8 +10,9 @@ from src.util import _handle_input_dimensionality
 
 class GPRegressionLearned:
 
-    def __init__(self, train_x, train_t, learning_mode='both', lr_params=1e-3, weight_decay=1e-3, feature_dim=2,
-                 num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32)):
+    def __init__(self, train_x, train_t, learning_mode='both', lr_params=1e-3, weight_decay=0.0, feature_dim=2,
+                 num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
+                 random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -29,6 +30,7 @@ class GPRegressionLearned:
             mean_module: (gpytorch.mean.Mean) optional mean module, default: ZeroMean
             mean_nn_layers: (tuple) hidden layer sizes of mean NN
             kernel_nn_layers: (tuple) hidden layer sizes of kernel NN
+            random_seed: (int) seed for pytorch
         """
 
         assert learning_mode in ['learn_mean', 'learn_kernel', 'both', 'vanilla']
@@ -36,6 +38,9 @@ class GPRegressionLearned:
         assert covar_module in ['NN', 'SE'] or isinstance(covar_module, gpytorch.kernels.Kernel)
 
         self.lr_params, self.weight_decay, self.num_iter_fit = lr_params, weight_decay, num_iter_fit
+
+        if random_seed is not None:
+            torch.manual_seed(random_seed)
 
         # Convert the data into pytorch tensors
         train_x, train_t = _handle_input_dimensionality(train_x, train_t)
