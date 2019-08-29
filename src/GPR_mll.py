@@ -1,11 +1,10 @@
 import torch
 import gpytorch
 import time
-
 import numpy as np
 
 from src.models import LearnedGPRegressionModel, NeuralNetwork
-from src.util import _handle_input_dimensionality
+from src.util import _handle_input_dimensionality, get_logger
 
 
 class GPRegressionLearned:
@@ -32,6 +31,7 @@ class GPRegressionLearned:
             kernel_nn_layers: (tuple) hidden layer sizes of kernel NN
             random_seed: (int) seed for pytorch
         """
+        self.logger = get_logger()
 
         assert learning_mode in ['learn_mean', 'learn_kernel', 'both', 'vanilla']
         assert mean_module in ['NN', 'constant', 'zero'] or isinstance(mean_module, gpytorch.means.Mean)
@@ -148,10 +148,10 @@ class GPRegressionLearned:
 
                         message += ' - Valid-LL: %.3f' % valid_ll
 
-                    print(message)
+                    self.logger.info(message)
 
         else:
-            print('Vanilla mode - nothing to fit')
+            self.logger.info('Vanilla mode - nothing to fit')
 
         self.fitted = True
 
