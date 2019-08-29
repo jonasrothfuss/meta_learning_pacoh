@@ -1,7 +1,5 @@
 import mnist
 import numpy as np
-from numbers import Number
-from matplotlib import pyplot as plt
 
 import os
 
@@ -115,6 +113,7 @@ class SinusoidMetaDataset(MetaDataset):
         self.x_low, self.x_high = x_low, x_high
 
     def generate_meta_test_data(self, n_tasks, n_samples_context, n_samples_test):
+        assert n_samples_test > 0
         meta_test_tuples = []
         for i in range(n_tasks):
             f = self._sample_sinusoid()
