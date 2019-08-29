@@ -102,7 +102,7 @@ class GPRegressionLearned:
             self.parameters.append({'params': self.model.mean_module.hyperparameters(), 'lr': self.lr_params})
 
         if len(self.parameters) > 0:
-            self.optimizer = torch.optim.Adam(self.parameters)
+            self.optimizer = torch.optim.AdamW(self.parameters)
 
         self.fitted = False
 

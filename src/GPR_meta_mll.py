@@ -12,7 +12,7 @@ class GPRegressionMetaLearned:
 
     def __init__(self, meta_train_data, learning_mode='both', lr_params=1e-3, weight_decay=0.0, feature_dim=2,
                  num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 random_seed=None):
+                 task_batch_size=5, random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -21,7 +21,7 @@ class GPRegressionMetaLearned:
             meta_train_data: list of tuples of ndarrays[(train_x_1, train_t_1), ..., (train_x_n, train_t_n)]
             learning_mode: (str) specifying which of the GP prior parameters to optimize. Either one of
                     ['learned_mean', 'learned_kernel', 'both', 'vanilla']
-            lr_params: (float) learning rate for prior parameters
+            lr: (float) learning rate for prior parameters
             weight_decay: (float) weight decay penalty
             feature_dim: (int) output dimensionality of NN feature map for kernel function
             num_iter_fit: (int) number of gradient steps for fitting the parameters
@@ -29,6 +29,8 @@ class GPRegressionMetaLearned:
             mean_module: (gpytorch.mean.Mean) optional mean module, default: ZeroMean
             mean_nn_layers: (tuple) hidden layer sizes of mean NN
             kernel_nn_layers: (tuple) hidden layer sizes of kernel NN
+            learning_rate: (float) learning rate for AdamW optimizer
+            task_batch_size: (int) batch size for meta training, i.e. number of tasks for computing grads
             random_seed: (int) seed for pytorch
         """
         self.logger = get_logger()
@@ -37,10 +39,12 @@ class GPRegressionMetaLearned:
         assert mean_module in ['NN', 'constant', 'zero'] or isinstance(mean_module, gpytorch.means.Mean)
         assert covar_module in ['NN', 'SE'] or isinstance(covar_module, gpytorch.kernels.Kernel)
 
-        self.lr_params, self.weight_decay, self.num_iter_fit, self.feature_dim = lr_params, weight_decay, num_iter_fit, feature_dim
+        self.lr_params, self.weight_decay, self.feature_dim = lr_params, weight_decay, feature_dim
+        self.num_iter_fit, self.task_batch_size = num_iter_fit, task_batch_size
 
         if random_seed is not None:
             torch.manual_seed(random_seed)
+        self.rds_numpy = np.random.RandomState(random_seed)
 
         # Check that data all has the same size
         for i in range(len(meta_train_data)):
@@ -76,18 +80,19 @@ class GPRegressionMetaLearned:
             })
 
         if len(self.shared_parameters) > 0:
-            self.optimizer = torch.optim.Adam(self.shared_parameters)
+            self.optimizer = torch.optim.AdamW(self.shared_parameters)
 
         self.fitted = False
 
 
-    def meta_fit(self, verbose=True, valid_tuples=None):
+    def meta_fit(self, valid_tuples=None, verbose=True, log_period=500):
         """
         fits the VI and prior parameters of the  GPC model
 
         Args:
-            verbose: (boolean) whether to print training progress
             valid_tuples: list of valid tuples, i.e. [(test_context_x_1, test_context_t_1, test_x_1, test_t_1), ...]
+            verbose: (boolean) whether to print training progress
+            log_period (int) number of steps after which to print stats
         """
         for task_dict in self.task_dicts: task_dict['model'].train()
         self.likelihood.train()
@@ -102,7 +107,7 @@ class GPRegressionMetaLearned:
                 self.optimizer.zero_grad()
                 loss = 0.0
 
-                for task_dict in self.task_dicts:
+                for task_dict in self.rds_numpy.choice(self.task_dicts, size=self.task_batch_size):
 
                     output = task_dict['model'](task_dict['train_x'])
                     mll = task_dict['mll_fn'](output, task_dict['train_t'])
@@ -112,7 +117,7 @@ class GPRegressionMetaLearned:
                 self.optimizer.step()
 
                 # print training stats stats
-                if verbose and (itr == 1 or itr % 100 == 0):
+                if verbose and (itr == 1 or itr % log_period == 0):
                     duration = time.time() - t
                     t = time.time()
 
