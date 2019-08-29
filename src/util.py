@@ -19,7 +19,7 @@ def _handle_input_dimensionality(x: np.ndarray, y: np.ndarray) -> (np.ndarray, n
 
 def get_logger(log_dir=None, log_file='output.log', expname=''):
 
-    if log_dir is None and flags.FLAGS.is_parsed():
+    if log_dir is None and flags.FLAGS.is_parsed() and hasattr(flags.FLAGS, 'log_dir'):
         log_dir = flags.FLAGS.log_dir
 
     logger = logging.getLogger('gp-priors')
