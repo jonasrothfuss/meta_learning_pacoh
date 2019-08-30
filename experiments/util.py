@@ -2,9 +2,15 @@ import os
 import copy
 import json
 import hashlib
+import sys
+import glob
 import collections
+import itertools
+import multiprocessing
+import pandas as pd
 from absl import flags
 from src.util import get_logger
+
 
 DEFAULT_FLAGS = ['logtostderr', 'alsologtostderr', 'v', 'verbosity',
                   'stderrthreshold', 'showprefixforinfo', 'run_with_pdb', 'pdb_post_mortem',
@@ -91,3 +97,96 @@ def dict_to_tabular_str(dict):
     for key, value in collections.OrderedDict(dict).items():
         s += format.format(key, value) + '\n'
     return s
+
+
+def collect_exp_results(exp_name, verbose=True):
+    exp_dir = os.path.join(DATA_DIR, exp_name)
+    no_results_counter = 0
+
+    exp_dicts = []
+    for exp_sub_dir in glob.glob(exp_dir + '/*'):
+        config_file = os.path.join(exp_sub_dir, 'config.json')
+        results_file = os.path.join(exp_sub_dir, 'results.json')
+
+        if os.path.isfile(config_file) and os.path.isfile(results_file):
+            with open(config_file, 'r') as f:
+                exp_dict = json.load(f)
+            with open(results_file, 'r') as f:
+                exp_dict.update(json.load(f))
+            exp_dicts.append(exp_dict)
+        else:
+            no_results_counter += 1
+
+    if verbose:
+        logger = get_logger()
+        logger.info('Parsed results %s - found %i folders with results and %i folders without results'
+                    %(exp_name, len(exp_dicts), no_results_counter))
+
+    return pd.DataFrame(data=exp_dicts)
+
+
+def generate_launch_commands(module, exp_config):
+    # create base command without flags
+    interpreter_script = sys.executable
+    base_exp_script = os.path.abspath(module.__file__)
+    base_cmd = interpreter_script + ' ' + base_exp_script
+
+    # check exp_config
+    allowed_flags = set(module.FLAGS.flag_values_dict().keys())
+    for key, value in exp_config.items():
+        assert hasattr(value, '__iter__')
+        assert key in allowed_flags, "%s is not a flag in %s"%(key, str(module))
+
+
+    config_product = list(itertools.product(*list(exp_config.values())))
+    config_product_dicts = [(dict(zip(exp_config.keys(), conf))) for conf in config_product]
+
+    # add flags to the base command
+    cmds = []
+    for config_dict in config_product_dicts:
+        cmd = base_cmd
+        for (key, value) in config_dict.items():
+            cmd += " --%s=%s"%(str(key), str(value))
+        cmds.append(cmd)
+
+    return cmds
+
+
+class AsyncExecutor:
+
+    def __init__(self, n_jobs=1):
+        self.num_workers = n_jobs if n_jobs > 0 else multiprocessing.cpu_count()
+        self._pool = []
+        self._populate_pool()
+
+    def run(self, target, *args_iter, verbose=False):
+        workers_idle = [False] * self.num_workers
+        tasks = list(zip(*args_iter))
+        n_tasks = len(tasks)
+
+        while not all(workers_idle):
+            for i in range(self.num_workers):
+                if not self._pool[i].is_alive():
+                    self._pool[i].terminate()
+                    if len(tasks) > 0:
+                        if verbose:
+                          print(n_tasks-len(tasks))
+                        next_task = tasks.pop(0)
+                        self._pool[i] = _start_process(target, next_task)
+                    else:
+                        workers_idle[i] = True
+
+    def _populate_pool(self):
+        self._pool = [_start_process(_dummy_fun) for _ in range(self.num_workers)]
+
+
+def _start_process(target, args=None):
+    if args:
+        p = multiprocessing.Process(target=target, args=args)
+    else:
+        p = multiprocessing.Process(target=target)
+    p.start()
+    return p
+
+def _dummy_fun():
+    pass

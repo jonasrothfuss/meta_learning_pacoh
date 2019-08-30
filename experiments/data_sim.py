@@ -73,7 +73,7 @@ class MNISTRegressionDataset(MetaDataset):
     def _image_to_context_transform(self, image, num_context_points):
         assert image.ndim == 2 and image.shape[0] == image.shape[1]
         image_size = image.shape[0]
-        assert num_context_points < image_size ** 2
+        assert num_context_points <= image_size ** 2
 
         xx, yy = np.meshgrid(np.arange(image_size), np.arange(image_size))
         indices = np.array(list(zip(xx.flatten(), yy.flatten())))

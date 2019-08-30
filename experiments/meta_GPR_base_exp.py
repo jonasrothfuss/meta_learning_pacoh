@@ -13,7 +13,7 @@ EXP_NAME = 'meta-overfitting'
 
 
 flags.DEFINE_integer('seed', default=25, help='random seed')
-flags.DEFINE_integer('n_threads', default=8, help='number of threads')
+flags.DEFINE_integer('n_threads', default=1, help='number of threads')
 
 # Configuration for GP-Prior learning
 flags.DEFINE_float('weight_decay', default=0.0, help='weight decay for meta-learning the prior')
@@ -28,11 +28,11 @@ flags.DEFINE_integer('batch_size', 5, help='batch size for meta training, i.e. n
 
 # Configuration w.r.t. data
 flags.DEFINE_integer('n_train_tasks', default=10000, help='number of train tasks')
-flags.DEFINE_integer('n_train_samples', default=10, help='number of train samples per task')
+flags.DEFINE_integer('n_train_samples', default=784, help='number of train samples per task')
 
 flags.DEFINE_integer('n_test_tasks', default=5000, help='number of test tasks')
-flags.DEFINE_integer('n_context_samples', default=10, help='number of test context points per task')
-flags.DEFINE_integer('n_test_samples', default=50, help='number of test evaluation points per task')
+flags.DEFINE_integer('n_context_samples', default=100, help='number of test context points per task')
+flags.DEFINE_integer('n_test_samples', default=-1, help='number of test evaluation points per task')
 
 
 FLAGS = flags.FLAGS
@@ -46,7 +46,7 @@ def main(argv):
 
     rds = np.random.RandomState(FLAGS.seed)
 
-    dataset = SinusoidMetaDataset(random_state=rds)
+    dataset = MNISTRegressionDataset(random_state=rds)
     data_train = dataset.generate_meta_train_data(n_tasks=FLAGS.n_train_tasks, n_samples=FLAGS.n_train_samples)
     data_test = dataset.generate_meta_test_data(n_tasks=FLAGS.n_test_tasks, n_samples_context=FLAGS.n_context_samples,
                                                 n_samples_test=FLAGS.n_test_samples)
