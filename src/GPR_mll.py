@@ -54,7 +54,7 @@ class GPRegressionLearned:
 
         # a) determine kernel map & module
 
-        if covar_module is 'NN':
+        if covar_module == 'NN':
             assert learning_mode in ['learn_kernel', 'both'], 'neural network parameters must be learned'
             nn_kernel_map = NeuralNetwork(input_dim=input_dim, output_dim=feature_dim, layer_sizes=kernel_nn_layers)
             self.parameters.append({'params': nn_kernel_map.parameters(), 'lr': self.lr_params, 'weight_decay': self.weight_decay})
@@ -62,13 +62,13 @@ class GPRegressionLearned:
         else:
             nn_kernel_map = None
 
-        if covar_module is 'SE':
+        if covar_module == 'SE':
             covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=feature_dim))
 
 
         # b) determine mean map & module
 
-        if mean_module is 'NN':
+        if mean_module == 'NN':
             assert learning_mode in ['learn_mean', 'both'], 'neural network parameters must be learned'
             nn_mean_fn = NeuralNetwork(input_dim=input_dim, output_dim=1, layer_sizes=mean_nn_layers)
             self.parameters.append({'params': nn_mean_fn.parameters(), 'lr': self.lr_params, 'weight_decay': self.weight_decay})
@@ -76,9 +76,9 @@ class GPRegressionLearned:
         else:
             nn_mean_fn = None
 
-        if mean_module is 'constant':
+        if mean_module == 'constant':
             mean_module = gpytorch.means.ConstantMean()
-        elif mean_module is 'zero':
+        elif mean_module == 'zero':
             mean_module = gpytorch.means.ZeroMean()
 
         # C) setup GP model
