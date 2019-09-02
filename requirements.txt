@@ -4,3 +4,4 @@ numpy
 gpytorch
 mnist
 absl-py
+pandas

@@ -12,7 +12,7 @@ Y_LOW = -2.5
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_DIR, 'data')
-MNIST_DIR = DATA_DIR + 'mnist'
+MNIST_DIR = os.path.join(DATA_DIR, 'mnist')
 
 class MetaDataset():
 
@@ -36,8 +36,8 @@ class MNISTRegressionDataset(MetaDataset):
     def __init__(self, random_state=None, dtype=np.float32):
         super().__init__(random_state)
         self.dtype = dtype
-        self.train_images = mnist.train_images()
-        self.test_images = mnist.test_images()
+        self.train_images = mnist.download_and_parse_mnist_file('train-images-idx3-ubyte.gz', target_dir=MNIST_DIR) / 255.0
+        self.test_images = mnist.download_and_parse_mnist_file('t10k-images-idx3-ubyte.gz', target_dir=MNIST_DIR) / 255.0
 
     def generate_meta_train_data(self, n_tasks, n_samples):
 
