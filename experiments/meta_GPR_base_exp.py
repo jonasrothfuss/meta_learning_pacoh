@@ -70,12 +70,12 @@ def main(argv):
 
     gp_meta.meta_fit(valid_tuples=data_test[:100])
 
-    test_ll, rsme = gp_meta.eval_datasets(data_test)
+    test_ll, rmse = gp_meta.eval_datasets(data_test)
 
     # save results
     results_dict = {
         'test_ll': test_ll,
-        'test_rsme': rsme
+        'test_rmse': rmse
     }
     save_results(results_dict, exp_dir, log=True)
 
