@@ -121,14 +121,14 @@ class GPRegressionMetaLearned:
                     duration = time.time() - t
                     t = time.time()
 
-                    message = 'Iter %d/%d - Loss: %.3f - Time %.3f sec' % (itr, self.num_iter_fit, loss.item(), duration)
+                    message = 'Iter %d/%d - Loss: %.6f - Time %.2f sec' % (itr, self.num_iter_fit, loss.item(), duration)
 
                     # if validation data is provided  -> compute the valid log-likelihood
                     if valid_tuples is not None:
                         self.likelihood.eval()
-                        valid_ll, _ = self.eval_datasets(valid_tuples)
+                        valid_ll, valid_rmse = self.eval_datasets(valid_tuples)
                         self.likelihood.train()
-                        message += ' - Valid-LL: %.3f' % np.mean(valid_ll)
+                        message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f' % (np.mean(valid_ll), np.mean(valid_rmse))
 
                     self.logger.info(message)
 
