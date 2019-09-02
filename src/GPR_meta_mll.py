@@ -185,7 +185,7 @@ class GPRegressionMetaLearned:
 
     def eval(self, test_context_x, test_context_t, test_x, test_t):
         """
-        Computes the average test log likelihood and the RSME on test data
+        Computes the average test log likelihood and the rmse on test data
 
         Args:
             test_x: (ndarray) test input data of shape (n_samples, ndim_x)
@@ -211,7 +211,7 @@ class GPRegressionMetaLearned:
 
     def eval_datasets(self, test_tuples):
         """
-        Computes the average test log likelihood and the RSME over multiple test datasets
+        Computes the average test log likelihood and the rmse over multiple test datasets
 
         Args:
             test_tuples: list of test set tuples, i.e. [(test_context_x_1, test_context_t_1, test_x_1, test_t_1), ...]
@@ -222,9 +222,9 @@ class GPRegressionMetaLearned:
 
         assert (all([len(valid_tuple) == 4 for valid_tuple in test_tuples]))
 
-        ll_list, rsme_list = list(zip(*[self.eval(*test_data_tuple) for test_data_tuple in test_tuples]))
+        ll_list, rmse_list = list(zip(*[self.eval(*test_data_tuple) for test_data_tuple in test_tuples]))
 
-        return np.mean(ll_list), np.mean(rsme_list)
+        return np.mean(ll_list), np.mean(rmse_list)
 
 
     def _setup_gp_prior(self, mean_module, covar_module, learning_mode, feature_dim, mean_nn_layers, kernel_nn_layers):

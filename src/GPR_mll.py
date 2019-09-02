@@ -179,7 +179,7 @@ class GPRegressionLearned:
 
     def eval(self, test_x, test_t):
         """
-        Computes the average test log likelihood and the RSME on test data
+        Computes the average test log likelihood and the rmse on test data
 
         Args:
             test_x: (ndarray) test input data of shape (n_samples, ndim_x)
