@@ -36,8 +36,14 @@ class MNISTRegressionDataset(MetaDataset):
     def __init__(self, random_state=None, dtype=np.float32):
         super().__init__(random_state)
         self.dtype = dtype
-        self.train_images = mnist.download_and_parse_mnist_file('train-images-idx3-ubyte.gz', target_dir=MNIST_DIR) / 255.0
-        self.test_images = mnist.download_and_parse_mnist_file('t10k-images-idx3-ubyte.gz', target_dir=MNIST_DIR) / 255.0
+
+        mnist_dir = MNIST_DIR if os.path.isdir(MNIST_DIR) else None
+
+        self.train_images = mnist.download_and_parse_mnist_file('train-images-idx3-ubyte.gz', target_dir=mnist_dir)
+        self.test_images = mnist.download_and_parse_mnist_file('t10k-images-idx3-ubyte.gz', target_dir=mnist_dir)
+
+        self.train_images = self.train_images / 255.0
+        self.test_images = self.train_images / 255.0
 
     def generate_meta_train_data(self, n_tasks, n_samples):
 
