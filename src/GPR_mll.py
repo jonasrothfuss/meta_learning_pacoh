@@ -84,6 +84,7 @@ class GPRegressionLearned:
         # C) setup GP model
 
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
+        self.parameters.append(self.likelihood.hyperparameters())
 
         self.model = LearnedGPRegressionModel(self.train_x_tensor, self.train_t_tensor, self.likelihood,
                                               learned_kernel=nn_kernel_map, learned_mean=nn_mean_fn,
@@ -101,8 +102,7 @@ class GPRegressionLearned:
         if learning_mode in ["learn_mean", "both"] and mean_module is not None:
             self.parameters.append({'params': self.model.mean_module.hyperparameters(), 'lr': self.lr_params})
 
-        if len(self.parameters) > 0:
-            self.optimizer = torch.optim.AdamW(self.parameters)
+        self.optimizer = torch.optim.AdamW(self.parameters)
 
         self.fitted = False
 

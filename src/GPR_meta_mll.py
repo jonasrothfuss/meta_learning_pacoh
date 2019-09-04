@@ -60,6 +60,7 @@ class GPRegressionMetaLearned:
         # setup tasks models
 
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
+        self.shared_parameters.append(self.likelihood.hyperparameters())
 
         self.task_dicts = []
 
@@ -79,8 +80,7 @@ class GPRegressionMetaLearned:
                 'mll_fn': gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, gp_model)
             })
 
-        if len(self.shared_parameters) > 0:
-            self.optimizer = torch.optim.AdamW(self.shared_parameters)
+        self.optimizer = torch.optim.AdamW(self.shared_parameters)
 
         self.fitted = False
 
