@@ -146,6 +146,39 @@ class SinusoidMetaDataset(MetaDataset):
         period = self.random_state.uniform(self.period_low, self.period_high)
         return lambda x: slope * x + amplitude * np.sin(period * (x - x_shift)) + y_shift
 
+class SinusoidNonstationaryDataset(MetaDataset):
+
+    def __init__(self, noise_std=0.0,  x_low=-5, x_high=5, random_state=None):
+
+        super().__init__(random_state)
+        self.noise_std = noise_std
+        self.x_low, self.x_high = x_low, x_high
+
+    def generate_meta_test_data(self, n_tasks, n_samples_context, n_samples_test):
+        assert n_samples_test > 0
+        meta_test_tuples = []
+        for i in range(n_tasks):
+            f = self._sample_fun()
+            X = self.random_state.uniform(self.x_low, self.x_high, size=(n_samples_context + n_samples_test, 1))
+            Y = f(X)
+            meta_test_tuples.append((X[n_samples_context:], Y[n_samples_context:], X[:n_samples_context], Y[:n_samples_context]))
+
+        return meta_test_tuples
+
+    def generate_meta_train_data(self, n_tasks, n_samples):
+        meta_train_tuples = []
+        for i in range(n_tasks):
+            f = self._sample_fun()
+            X = self.random_state.uniform(self.x_low, self.x_high, size=(n_samples, 1))
+            Y = f(X)
+            meta_train_tuples.append((X, Y))
+        return meta_train_tuples
+
+    def _sample_fun(self):
+        slope = self.random_state.normal(loc=1, scale=0.2)
+        freq = lambda x: 1 + np.abs(x)
+        mean = lambda x: slope * x
+        return lambda x: mean(x) + np.sin(freq(x) * x) + self.random_state.normal(loc=0, scale=self.noise_std, size=x.shape)
 
 # """ sinusoidal data """
 #
@@ -184,11 +217,20 @@ class SinusoidMetaDataset(MetaDataset):
 #     X = np.concatenate([X_1, Y], axis=-1)
 #     assert np.all(np.logical_or(target == 1.0, target -1.0))
 #     return X, target
-#
-#
-#
-# if __name__ == "__main__":
-#     X, Y = sample_sinusoid_classification_data(100)
-#     print(X.shape)
-#     plt.scatter(X[:,0], X[:,1], c=Y)
-#     plt.show()
+
+
+if __name__ == "__main__":
+    x = np.linspace(-5, 5, num=200)
+
+    dataset = SinusoidNonstationaryDataset()
+
+
+    from matplotlib import pyplot as plt
+
+    meta_data = dataset.generate_meta_train_data(n_tasks=2, n_samples=200)
+
+    for x, y in meta_data:
+        # func = dataset._sample_fun()
+        # y = func(x)
+        plt.scatter(x, y)
+    plt.show()

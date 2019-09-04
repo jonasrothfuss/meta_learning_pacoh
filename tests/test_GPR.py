@@ -127,14 +127,14 @@ class TestGPR_mll_meta(unittest.TestCase):
         # meta train
         n_train_datasets = 10
         n_samples_train = 5
-        self.train_data_tuples = [sample_sinusoid_regression_data(n_samples_train) for _ in range(n_train_datasets)]
+        self.train_data_tuples = [sample_data_nonstationary(n_samples_train) for _ in range(n_train_datasets)]
 
         # test
         n_test_datasets = 10
         n_samples_test_context = 5
         n_samples_test = 50
 
-        test_data = [sample_sinusoid_regression_data(n_samples_test_context + n_samples_test) for _ in
+        test_data = [sample_data_nonstationary(n_samples_test_context + n_samples_test) for _ in
                             range(n_test_datasets)]
 
         # split data into test_context and test_valid
@@ -158,13 +158,28 @@ class TestGPR_mll_meta(unittest.TestCase):
 
             self.assertTrue(np.array_equal(t_predict_1, t_predict_2))
 
+
+    # def test_mean_learning_nonstationary(self):
+    #     torch.manual_seed(40)
+    #     np.random.seed(22)
+    #     # check that more datasets improve performance
+    #
+    #
+    #
+    #     # meta-learning with 2 datasets
+    #     gp_meta = GPRegressionMetaLearned(meta_train_tuples, learning_mode='both', mean_nn_layers=(16, 16),
+    #                                       kernel_nn_layers=(16, 16), num_iter_fit=10000, covar_module='SE',
+    #                                       mean_module='NN', weight_decay=0.0)
+    #     gp_meta.meta_fit(valid_tuples=meta_test_tuples, log_period=100)
+
+
     def test_mean_learning_more_datasets(self):
         torch.manual_seed(40)
         # check that more datasets improve performance
 
         # meta-learning with 2 datasets
         gp_meta = GPRegressionMetaLearned(self.train_data_tuples[:2], learning_mode='both', mean_nn_layers=(16, 16),
-                                          kernel_nn_layers=(16, 16), num_iter_fit=2000, covar_module='SE',
+                                          kernel_nn_layers=(16, 16), num_iter_fit=10000, covar_module='SE',
                                           mean_module='NN', weight_decay=0.0)
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
@@ -173,7 +188,7 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         # meta-learning with 10 datasets
         gp_meta = GPRegressionMetaLearned(self.train_data_tuples, learning_mode='both', mean_nn_layers=(16, 16),
-                                          kernel_nn_layers=(16, 16), num_iter_fit=2000, covar_module='SE',
+                                          kernel_nn_layers=(16, 16), num_iter_fit=10000, covar_module='SE',
                                           mean_module='NN', weight_decay=0.0)
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
@@ -192,7 +207,7 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         # meta-learning
         gp_meta = GPRegressionMetaLearned(self.train_data_tuples, learning_mode='both', mean_nn_layers=(64, 64),
-                                          covar_module='SE', mean_module='NN', weight_decay=0.0, num_iter_fit=2000)
+                                          covar_module='SE', mean_module='NN', weight_decay=0.0, num_iter_fit=10000)
 
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
@@ -206,7 +221,7 @@ class TestGPR_mll_meta(unittest.TestCase):
         for (x_context, t_context, x_test, t_test) in self.test_data_tuples:
 
             gpr = GPRegressionLearned(x_context, t_context, learning_mode='both', mean_nn_layers=(64, 64),
-                                      covar_module='SE', mean_module='NN', weight_decay=0.0, num_iter_fit=2000)
+                                      covar_module='SE', mean_module='NN', weight_decay=0.0, num_iter_fit=10000)
             gpr.fit(valid_x=x_test, valid_t=t_test)
 
             ll_list.append(gpr.eval(x_test, t_test)[0])
@@ -264,6 +279,18 @@ def sample_sinusoid_regression_data(size=1, amp_low=0.8, amp_high=1.2, y_shift_m
 
     assert X.shape[:-1] == Y.shape[:-1] == size # check that simulated data has required size
     assert X.shape[-1] == X.shape[-1] == 1 # check that data is one-dimensional
+    return X, Y
+
+def sample_data_nonstationary(size=1):
+    def _sample_fun():
+        slope = np.random.normal(loc=1, scale=0.2)
+        freq = lambda x: 1 + np.abs(x)
+        mean = lambda x: slope * x
+        return lambda x: (mean(x) + np.sin(freq(x) * x)) / 5
+
+    func = _sample_fun()
+    X = np.random.uniform(-5, 5, size=(size, 1))
+    Y = func(X)
     return X, Y
 
 if __name__ == '__main__':
