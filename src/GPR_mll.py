@@ -84,7 +84,7 @@ class GPRegressionLearned:
         # C) setup GP model
 
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
-        self.parameters.append(self.likelihood.hyperparameters())
+        self.parameters.append({'params': self.likelihood.parameters(), 'lr': self.lr_params})
 
         self.model = LearnedGPRegressionModel(self.train_x_tensor, self.train_t_tensor, self.likelihood,
                                               learned_kernel=nn_kernel_map, learned_mean=nn_mean_fn,
@@ -200,5 +200,15 @@ class GPRegressionLearned:
 
             return avg_log_likelihood.item(), rmse.item()
 
+    def state_dict(self):
+        state_dict = {
+            'model': self.model.state_dict(),
+            'optimizer': self.optimizer.state_dict()
+        }
+        return state_dict
+
+    def load_state_dict(self, state_dict):
+        self.model.load_state_dict(state_dict['model'])
+        self.optimizer.load_state_dict(state_dict['optimizer'])
 
 

@@ -45,6 +45,32 @@ class TestGPR_mll(unittest.TestCase):
 
         self.assertTrue(np.array_equal(t_predict_1, t_predict_2))
 
+    def test_serializable(self):
+        torch.manual_seed(40)
+        np.random.seed(22)
+        import itertools
+        # check that more datasets improve performance
+        for mean_module, covar_module in itertools.product(['constant', 'NN'], ['SE', 'NN']):
+
+            gpr_model = GPRegressionLearned(self.x_train, self.y_train_two, learning_mode='both',
+                                            num_iter_fit=10, mean_module=mean_module, covar_module='NN', random_seed=22)
+            gpr_model.fit()
+            pred_1 = gpr_model.predict(self.x_train)
+
+            gpr_model2 = GPRegressionLearned(self.x_train, self.y_train_two, learning_mode='both',
+                                            num_iter_fit=1, mean_module=mean_module, covar_module='NN', random_seed=345)
+            gpr_model2.fit()
+            pred_2 = gpr_model2.predict(self.x_train)
+
+
+            file = ('/tmp/test_torch_serialization.pkl')
+            torch.save(gpr_model.state_dict(), file)
+            gpr_model2.load_state_dict(torch.load(file))
+            pred_3 = gpr_model2.predict(self.x_train)
+            assert not np.array_equal(pred_1, pred_2)
+            assert np.array_equal(pred_1, pred_3)
+
+
     def test_mean_learning(self):
         for mean_module in ['NN', 'constant']:
 
@@ -158,20 +184,40 @@ class TestGPR_mll_meta(unittest.TestCase):
 
             self.assertTrue(np.array_equal(t_predict_1, t_predict_2))
 
+    def test_serializable(self):
+        torch.manual_seed(40)
+        np.random.seed(22)
+        import itertools
+        # check that more datasets improve performance
+        for mean_module, covar_module in itertools.product(['constant', 'NN'], ['SE', 'NN']):
 
-    # def test_mean_learning_nonstationary(self):
-    #     torch.manual_seed(40)
-    #     np.random.seed(22)
-    #     # check that more datasets improve performance
-    #
-    #
-    #
-    #     # meta-learning with 2 datasets
-    #     gp_meta = GPRegressionMetaLearned(meta_train_tuples, learning_mode='both', mean_nn_layers=(16, 16),
-    #                                       kernel_nn_layers=(16, 16), num_iter_fit=10000, covar_module='SE',
-    #                                       mean_module='NN', weight_decay=0.0)
-    #     gp_meta.meta_fit(valid_tuples=meta_test_tuples, log_period=100)
+            gpr_model = GPRegressionMetaLearned(self.train_data_tuples[:3], learning_mode='both',
+                                            num_iter_fit=5, mean_module=mean_module, covar_module='NN', random_seed=22)
+            gpr_model.meta_fit()
+            pred_1 = gpr_model.predict(*self.test_data_tuples[0][:3])
 
+            gpr_model2 = GPRegressionMetaLearned(self.train_data_tuples[:3], learning_mode='both',
+                                            num_iter_fit=5, mean_module=mean_module, covar_module='NN', random_seed=25)
+            gpr_model2.meta_fit()
+            pred_2 = gpr_model2.predict(*self.test_data_tuples[0][:3])
+
+
+            file = ('/tmp/test_torch_serialization.pkl')
+            torch.save(gpr_model.state_dict(), file)
+            gpr_model2.load_state_dict(torch.load(file))
+            pred_3 = gpr_model2.predict(*self.test_data_tuples[0][:3])
+            assert not np.array_equal(pred_1, pred_2)
+            assert np.array_equal(pred_1, pred_3)
+
+            torch.manual_seed(25)
+            gpr_model.rds_numpy = np.random.RandomState(55)
+            gpr_model.meta_fit()
+            torch.manual_seed(25)
+            gpr_model2.rds_numpy = np.random.RandomState(55)
+            gpr_model2.meta_fit()
+            pred_1 = gpr_model.predict(*self.test_data_tuples[0][:3])
+            pred_2 = gpr_model2.predict(*self.test_data_tuples[0][:3])
+            assert np.array_equal(pred_1, pred_2)
 
     def test_mean_learning_more_datasets(self):
         torch.manual_seed(40)
@@ -179,7 +225,7 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         # meta-learning with 2 datasets
         gp_meta = GPRegressionMetaLearned(self.train_data_tuples[:2], learning_mode='both', mean_nn_layers=(16, 16),
-                                          kernel_nn_layers=(16, 16), num_iter_fit=10000, covar_module='SE',
+                                          kernel_nn_layers=(16, 16), num_iter_fit=5000, covar_module='SE',
                                           mean_module='NN', weight_decay=0.0)
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
@@ -188,7 +234,7 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         # meta-learning with 10 datasets
         gp_meta = GPRegressionMetaLearned(self.train_data_tuples, learning_mode='both', mean_nn_layers=(16, 16),
-                                          kernel_nn_layers=(16, 16), num_iter_fit=10000, covar_module='SE',
+                                          kernel_nn_layers=(16, 16), num_iter_fit=5000, covar_module='SE',
                                           mean_module='NN', weight_decay=0.0)
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 

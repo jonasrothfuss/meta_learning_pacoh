@@ -60,7 +60,7 @@ class GPRegressionMetaLearned:
         # setup tasks models
 
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
-        self.shared_parameters.append(self.likelihood.hyperparameters())
+        self.shared_parameters.append({'params': self.likelihood.parameters(), 'lr': self.lr_params})
 
         self.task_dicts = []
 
@@ -227,6 +227,22 @@ class GPRegressionMetaLearned:
         return np.mean(ll_list), np.mean(rmse_list)
 
 
+    def state_dict(self):
+        state_dict = {
+            'optimizer': self.optimizer.state_dict(),
+            'model': self.task_dicts[0]['model'].state_dict()
+        }
+        for task_dict in self.task_dicts:
+            for key, tensor in task_dict['model'].state_dict().items():
+                assert torch.all(state_dict['model'][key] == tensor).item()
+        return state_dict
+
+    def load_state_dict(self, state_dict):
+        for task_dict in self.task_dicts:
+            task_dict['model'].load_state_dict(state_dict['model'])
+        self.optimizer.load_state_dict(state_dict['optimizer'])
+
+
     def _setup_gp_prior(self, mean_module, covar_module, learning_mode, feature_dim, mean_nn_layers, kernel_nn_layers):
 
         self.shared_parameters = []
@@ -272,5 +288,3 @@ class GPRegressionMetaLearned:
 
         if learning_mode in ["learn_mean", "both"] and self.mean_module is not None:
             self.shared_parameters.append({'params': self.mean_module.hyperparameters(), 'lr': self.lr_params})
-
-
