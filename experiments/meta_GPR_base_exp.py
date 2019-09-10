@@ -33,6 +33,7 @@ flags.DEFINE_integer('num_layers', default=5, help='number of neural network lay
 flags.DEFINE_integer('layer_size', default=128, help='number of neural network layers for GP-prior NNs')
 flags.DEFINE_float('lr', default=1e-3, help='learning rate for AdamW optimizer')
 flags.DEFINE_integer('batch_size', 20, help='batch size for meta training, i.e. number of tasks for computing grads')
+flags.DEFINE_string('optimizer', default='Adam', flag_values=['Adam', 'SGD'], help='type of optimizer to use - either \'SGD\' or \'ADAM\'')
 
 # Configuration w.r.t. data
 flags.DEFINE_integer('n_train_tasks', default=10, help='number of train tasks')
@@ -52,9 +53,8 @@ def main(argv):
 
     logger, exp_dir = setup_exp_doc(EXP_NAME)
 
-    rds = np.random.RandomState(FLAGS.seed)
 
-    dataset = SinusoidNonstationaryDataset(random_state=rds)
+    dataset = SinusoidNonstationaryDataset(random_state=np.random.RandomState(FLAGS.seed+1))
     data_train = dataset.generate_meta_train_data(n_tasks=FLAGS.n_train_tasks, n_samples=FLAGS.n_train_samples)
     data_test = dataset.generate_meta_test_data(n_tasks=FLAGS.n_test_tasks, n_samples_context=FLAGS.n_context_samples,
                                                 n_samples_test=FLAGS.n_test_samples)
@@ -73,7 +73,8 @@ def main(argv):
                                       weight_decay=FLAGS.weight_decay,
                                       lr_params=FLAGS.lr,
                                       random_seed=FLAGS.seed,
-                                      task_batch_size=FLAGS.batch_size
+                                      task_batch_size=FLAGS.batch_size,
+                                      optimizer=FLAGS.optimizer
                                       )
 
     gp_meta.meta_fit(valid_tuples=data_test[:100], log_period=500)

@@ -12,7 +12,7 @@ class GPRegressionMetaLearned:
 
     def __init__(self, meta_train_data, learning_mode='both', lr_params=1e-3, weight_decay=0.0, feature_dim=2,
                  num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 task_batch_size=5, random_seed=None):
+                 task_batch_size=5, optimizer='Adam', random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -31,6 +31,7 @@ class GPRegressionMetaLearned:
             kernel_nn_layers: (tuple) hidden layer sizes of kernel NN
             learning_rate: (float) learning rate for AdamW optimizer
             task_batch_size: (int) batch size for meta training, i.e. number of tasks for computing grads
+            optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
             random_seed: (int) seed for pytorch
         """
         self.logger = get_logger()
@@ -38,6 +39,7 @@ class GPRegressionMetaLearned:
         assert learning_mode in ['learn_mean', 'learn_kernel', 'both', 'vanilla']
         assert mean_module in ['NN', 'constant', 'zero'] or isinstance(mean_module, gpytorch.means.Mean)
         assert covar_module in ['NN', 'SE'] or isinstance(covar_module, gpytorch.kernels.Kernel)
+        assert optimizer in ['Adam', 'SGD']
 
         self.lr_params, self.weight_decay, self.feature_dim = lr_params, weight_decay, feature_dim
         self.num_iter_fit, self.task_batch_size = num_iter_fit, task_batch_size
@@ -81,7 +83,12 @@ class GPRegressionMetaLearned:
                 'mll_fn': gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, gp_model)
             })
 
-        self.optimizer = torch.optim.AdamW(self.shared_parameters)
+        if optimizer == 'Adam':
+            self.optimizer = torch.optim.AdamW(self.shared_parameters)
+        elif optimizer == 'SGD':
+            self.optimizer = torch.optim.SGD(self.shared_parameters)
+        else:
+            raise NotImplementedError('Optimizer must be Adam or SGD')
 
         self.fitted = False
 

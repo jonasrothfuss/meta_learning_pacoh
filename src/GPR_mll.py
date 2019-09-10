@@ -11,7 +11,7 @@ class GPRegressionLearned:
 
     def __init__(self, train_x, train_t, learning_mode='both', lr_params=1e-3, weight_decay=0.0, feature_dim=2,
                  num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 random_seed=None):
+                 optimizer='Adam', random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -29,6 +29,7 @@ class GPRegressionLearned:
             mean_module: (gpytorch.mean.Mean) optional mean module, default: ZeroMean
             mean_nn_layers: (tuple) hidden layer sizes of mean NN
             kernel_nn_layers: (tuple) hidden layer sizes of kernel NN
+            optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
             random_seed: (int) seed for pytorch
         """
         self.logger = get_logger()
@@ -36,6 +37,7 @@ class GPRegressionLearned:
         assert learning_mode in ['learn_mean', 'learn_kernel', 'both', 'vanilla']
         assert mean_module in ['NN', 'constant', 'zero'] or isinstance(mean_module, gpytorch.means.Mean)
         assert covar_module in ['NN', 'SE'] or isinstance(covar_module, gpytorch.kernels.Kernel)
+        assert optimizer in ['Adam', 'SGD']
 
         self.lr_params, self.weight_decay, self.num_iter_fit = lr_params, weight_decay, num_iter_fit
 
@@ -102,7 +104,12 @@ class GPRegressionLearned:
         if learning_mode in ["learn_mean", "both"] and mean_module is not None:
             self.parameters.append({'params': self.model.mean_module.hyperparameters(), 'lr': self.lr_params})
 
-        self.optimizer = torch.optim.AdamW(self.parameters)
+        if optimizer == 'Adam':
+            self.optimizer = torch.optim.AdamW(self.parameters)
+        elif optimizer == 'SGD':
+            self.optimizer = torch.optim.SGD(self.parameters)
+        else:
+            raise NotImplementedError('Optimizer must be Adam or SGD')
 
         self.fitted = False
 
