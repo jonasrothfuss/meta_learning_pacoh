@@ -59,7 +59,8 @@ class GPRegressionMetaLearned:
 
         # setup tasks models
 
-        self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
+        self.likelihood = gpytorch.likelihoods.GaussianLikelihood(
+            noise_constraint=gpytorch.likelihoods.noise_models.GreaterThan(1e-3))
         self.shared_parameters.append({'params': self.likelihood.parameters(), 'lr': self.lr_params})
 
         self.task_dicts = []
@@ -142,7 +143,7 @@ class GPRegressionMetaLearned:
 
 
 
-    def predict(self, test_context_x, test_context_t, test_x, return_tensors=False):
+    def predict(self, test_context_x, test_context_t, test_x, return_density=False):
         """
         computes the predictive distribution of the targets p(t|test_x, test_context_x, test_context_t)
 
@@ -150,7 +151,7 @@ class GPRegressionMetaLearned:
             test_context_x: (ndarray) context input data for which to compute the posterior
             test_context_x: (ndarray) context targets for which to compute the posterior
             test_x: (ndarray) query input data of shape (n_samples, ndim_x)
-            return_tensors: (bool) whether to return result as torch tensors of ndarray
+            return_density: (bool) whether to return result as mean and std ndarray or as MultivariateNormal pytorch object
 
         Returns:
             (pred_mean, pred_std) predicted mean and standard deviation corresponding to p(t|test_x, test_context_x, test_context_t)
@@ -177,8 +178,8 @@ class GPRegressionMetaLearned:
             pred_mean = pred.mean
             pred_std = pred.stddev
 
-        if return_tensors:
-            return pred_mean, pred_std
+        if return_density:
+            return pred
         else:
             return pred_mean.numpy(), pred_std.numpy()
 
@@ -199,15 +200,13 @@ class GPRegressionMetaLearned:
         test_x, test_t = _handle_input_dimensionality(test_x, test_t)
 
         with torch.no_grad():
-            pred_mean, pred_std = self.predict(test_context_x, test_context_t, test_x, return_tensors=True)
+            pred_dist = self.predict(test_context_x, test_context_t, test_x, return_density=True)
 
             test_t_tensor = torch.from_numpy(test_t).contiguous().float().flatten()
+            avg_log_likelihood = pred_dist.log_prob(test_t_tensor).item() / test_t_tensor.shape[0]
+            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt().item()
 
-            pred_dist = torch.distributions.normal.Normal(loc=pred_mean, scale=pred_std)
-            avg_log_likelihood = torch.mean(pred_dist.log_prob(test_t_tensor))
-            rmse = torch.mean(torch.pow(pred_mean - test_t_tensor, 2)).sqrt()
-
-            return avg_log_likelihood.item(), rmse.item()
+            return avg_log_likelihood, rmse
 
     def eval_datasets(self, test_tuples):
         """
