@@ -176,7 +176,7 @@ class GPRegressionLearned:
             (pred_mean, pred_std) predicted mean and standard deviation corresponding to p(y_test|X_test, X_train, y_train)
         """
         with torch.no_grad():
-            test_x_tensor = torch.from_numpy(test_x).contiguous().float().flatten()
+            test_x_tensor = torch.from_numpy(test_x).contiguous().float()
             pred = self.likelihood(self.model(test_x_tensor))
             pred_mean = pred.mean
             pred_std = pred.stddev

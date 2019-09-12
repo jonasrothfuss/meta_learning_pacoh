@@ -13,21 +13,29 @@ from gpytorch.variational import VariationalStrategy
 
 class NeuralNetwork(torch.nn.Sequential):
     """Trainable neural network kernel function for GPs."""
-    def __init__(self, input_dim=2, output_dim=2, layer_sizes=(64, 64), weight_norm=True):
+    def __init__(self, input_dim=2, output_dim=2, layer_sizes=(64, 64), nonlinearlity=torch.tanh,
+                 weight_norm=False):
         super(NeuralNetwork, self).__init__()
-        assert len(layer_sizes) >= 1, 'must be at least one hidden layer'
+        self.nonlinearlity = nonlinearlity
+        self.n_layers = len(layer_sizes)
 
         if weight_norm:
             _normalize = torch.nn.utils.weight_norm
         else:
             _normalize = lambda x: x
 
-        self.add_module('linear_1', _normalize(torch.nn.Linear(input_dim, layer_sizes[0])))
-        self.add_module('Tanh_1', torch.nn.Tanh())
-        for i in range(1, len(layer_sizes)):
-            self.add_module("linear_{}".format(i+1), _normalize(torch.nn.Linear(layer_sizes[i-1], layer_sizes[i])))
-            self.add_module("Tanh_{}".format(i+1), torch.nn.Tanh())
-        self.add_module("linear_{}".format(len(layer_sizes)+1), _normalize(torch.nn.Linear(layer_sizes[-1], output_dim)))
+        self.layers = []
+        for i, size in enumerate(layer_sizes):
+            setattr(self, 'fc_%i'%(i+1), _normalize(torch.nn.Linear(input_dim, size)))
+            prev_size = size
+        self.out = _normalize(torch.nn.Linear(prev_size, output_dim))
+
+    def forward(self, x):
+        for i in range(1, self.n_layers+1):
+            output = getattr(self, 'fc_%i'%i)(x)
+            output = self.nonlinearlity(output)
+        output = self.out(output)
+        return output
 
 
 class LearnedGPRegressionModel(gpytorch.models.ExactGP):
