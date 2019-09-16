@@ -1,5 +1,6 @@
 import mnist
 import numpy as np
+import pandas as pd
 
 import os
 
@@ -13,6 +14,7 @@ Y_LOW = -2.5
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_DIR, 'data')
 MNIST_DIR = os.path.join(DATA_DIR, 'mnist')
+PHYSIONET_DIR = "/cluster/work/grlab/projects/projects2019-MNAR_VAE/data/physionet2012"
 
 class MetaDataset():
 
@@ -29,6 +31,105 @@ class MetaDataset():
 
     def generate_meta_test_data(self, n_tasks:int, n_samples_context: int, n_samples_test: int) -> list:
         raise NotImplementedError
+
+        
+class PhysionetDataset(MetaDataset):
+    
+    def __init__(self, random_state=None, dtype=np.float32, physionet_dir=None):
+        super().__init__(random_state)
+        self.dtype = dtype
+        if physionet_dir is not None:
+            self.data_dir = physionet_dir
+        elif PHYSIONET_DIR is not None:
+            self.data_dir = PHYSIONET_DIR
+        else:
+            raise ValueError("No data directory provided.")
+        self.variable_list = ['ALP','ALT','AST','Albumin','BUN','Bilirubin','Cholesterol',
+                            'Creatinine','DiasABP','FiO2','GCS','Glucose','HCO3','HCT','HR',
+                            'K','Lactate','MAP','MechVent','Mg','NIDiasABP','NIMAP','NISysABP',
+                            'Na','PaCO2','PaO2','Platelets','RespRate','SaO2','SysABP',
+                            'Temp','TroponinI','TroponinT','Urine','WBC','pH']
+            
+            
+    def generate_meta_train_data(self, n_tasks, n_samples=48, variable_id=0):
+        """
+        Samples n_tasks patients and returns measurements from the variable
+        with the ID variable_id. n_samples defines in this case the cut-off
+        of hours on the ICU, e.g., n_samples=24 returns all measurements that
+        were taken in the first 24 hours. Generally, those will be less than
+        24 measurements. If there are less than n_tasks patients that have
+        any measurements of variable variable_id before hour n_samples, the
+        returned list will contain less than n_tasks tuples.
+        """
+        
+        assert variable_id < len(self.variable_list), "Unknown variable ID"
+        assert n_tasks < 2000, "We don't have that many tasks"
+        assert n_samples < 48, "We don't have that many samples"
+        variable = self.variable_list[variable_id]
+        data_path = os.path.join(self.data_dir, "set_a_merged.h5")
+        
+        with pd.HDFStore(data_path) as hdf_file:
+            keys = hdf_file.keys()
+                    
+        meta_train_tuples = []
+        
+        for patient in keys:
+            df = pd.read_hdf(data_path, patient)[variable].dropna()
+            times = df.index.values.astype(self.dtype)
+            values = df.values.astype(self.dtype)
+            times_context = [time for time in times if time <= n_samples]
+            if len(times_context) > 0:
+                times_context = np.array(times_context, dtype=self.dtype)
+                values_context = values[:len(times_context)]
+                meta_train_tuples.append((times_context, values_context))
+            if len(meta_train_tuples) >= n_tasks:
+                break
+                
+        return meta_train_tuples
+        
+        
+    def generate_meta_test_data(self, n_tasks, n_samples_context=24,
+                                n_samples_test=-1, variable_id=0):
+        """
+        Samples n_tasks patients and returns measurements from the variable
+        with the ID variable_id. n_samples defines in this case the cut-off
+        of hours on the ICU, e.g., n_samples=24 returns all measurements that
+        were taken in the first 24 hours. Generally, those will be less than
+        24 measurements. The remaining measurements are returned as test points,
+        i.e., n_samples_test is unused.
+        If there are less than n_tasks patients that have any measurements
+        of variable variable_id before hour n_samples, the
+        returned list will contain less than n_tasks tuples.
+        """
+
+        assert variable_id < len(self.variable_list), "Unknown variable ID"
+        assert n_tasks < 2000, "We don't have that many tasks"
+        assert n_samples_context < 48, "We don't have that many samples"
+        variable = self.variable_list[variable_id]
+        data_path = os.path.join(self.data_dir, "set_c_merged.h5")
+
+        with pd.HDFStore(data_path) as hdf_file:
+            keys = hdf_file.keys()
+
+        meta_test_tuples = []
+
+        for patient in keys:
+            df = pd.read_hdf(data_path, patient)[variable].dropna()
+            times = df.index.values.astype(self.dtype)
+            values = df.values.astype(self.dtype)
+            times_context = [time for time in times if time <= n_samples_context]
+            times_test = [time for time in times if time > n_samples_context]
+            if len(times_context) > 0 and len(times_test) > 0:
+                times_context = np.array(times_context, dtype=self.dtype)
+                times_test = np.array(times_test, dtype=self.dtype)
+                values_context = values[:len(times_context)]
+                values_test = values[len(times_context):]
+                meta_test_tuples.append((times_context, values_context,
+                                          times_test, values_test))
+            if len(meta_test_tuples) >= n_tasks:
+                break
+
+        return meta_test_tuples
 
 
 class MNISTRegressionDataset(MetaDataset):
