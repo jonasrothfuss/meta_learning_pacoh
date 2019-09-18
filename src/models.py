@@ -14,10 +14,11 @@ from gpytorch.variational import VariationalStrategy
 class NeuralNetwork(torch.nn.Sequential):
     """Trainable neural network kernel function for GPs."""
     def __init__(self, input_dim=2, output_dim=2, layer_sizes=(64, 64), nonlinearlity=torch.tanh,
-                 weight_norm=False):
+                 weight_norm=False, prefix='',):
         super(NeuralNetwork, self).__init__()
         self.nonlinearlity = nonlinearlity
         self.n_layers = len(layer_sizes)
+        self.prefix = prefix
 
         if weight_norm:
             _normalize = torch.nn.utils.weight_norm
@@ -26,15 +27,15 @@ class NeuralNetwork(torch.nn.Sequential):
 
         self.layers = []
         for i, size in enumerate(layer_sizes):
-            setattr(self, 'fc_%i'%(i+1), _normalize(torch.nn.Linear(input_dim, size)))
+            setattr(self, self.prefix + 'fc_%i'%(i+1), _normalize(torch.nn.Linear(input_dim, size)))
             prev_size = size
-        self.out = _normalize(torch.nn.Linear(prev_size, output_dim))
+        setattr(self, self.prefix + 'out', _normalize(torch.nn.Linear(prev_size, output_dim)))
 
     def forward(self, x):
         for i in range(1, self.n_layers+1):
-            output = getattr(self, 'fc_%i'%i)(x)
+            output = getattr(self, self.prefix + 'fc_%i'%i)(x)
             output = self.nonlinearlity(output)
-        output = self.out(output)
+        output = getattr(self, self.prefix + 'out')(output)
         return output
 
 

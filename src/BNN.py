@@ -28,7 +28,7 @@ class BayesianNeuralNetwork:
             optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
             random_seed: (int) seed for pytorch
         """
-        # TODO: random seed
+        pyro.set_rng_seed(random_seed)
 
         self.logger = get_logger()
 
@@ -47,8 +47,8 @@ class BayesianNeuralNetwork:
         self.batch_sampler = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
         # setup neural network
-        self.net = NeuralNetwork(input_dim=input_dim, output_dim=output_dim, layer_sizes=layer_sizes)
-
+        nn_prefix = str(self.__hash__())[-6:] + '_'
+        self.net = NeuralNetwork(input_dim=input_dim, output_dim=output_dim, layer_sizes=layer_sizes, prefix=nn_prefix)
 
         # setup probabilistic model -> prior * likelihood
         def model(x_data, y_data):
@@ -138,6 +138,9 @@ class BayesianNeuralNetwork:
         Returns:
             (pred_mean, pred_std) predicted mean and standard deviation
         """
+        if test_x.ndim == 1:
+            test_x = np.expand_dims(test_x, axis=-1)
+
         with torch.no_grad():
             test_x_tensor = torch.from_numpy(test_x).contiguous().float()
 
