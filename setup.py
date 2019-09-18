@@ -17,6 +17,7 @@ setuptools.setup(
         'numpy',
         'torch>=1.2.0',
         'gpytorch',
-        'absl-py'
+        'absl-py',
+        'pyro-ppl'
     ],
 )

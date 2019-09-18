@@ -5,3 +5,4 @@ gpytorch
 mnist
 absl-py
 pandas
+pyro-ppl
