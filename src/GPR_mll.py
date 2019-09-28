@@ -3,8 +3,11 @@ import gpytorch
 import time
 import numpy as np
 
-from src.models import LearnedGPRegressionModel, NeuralNetwork
+from src.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
 from src.util import _handle_input_dimensionality, get_logger
+
+
+
 
 
 class GPRegressionLearned:
@@ -44,17 +47,23 @@ class GPRegressionLearned:
         if random_seed is not None:
             torch.manual_seed(random_seed)
 
-        # Convert the data into pytorch tensors
+        """ ------Data handling ------ """
+        # a) Check shape and bring data in 2d-tensor formal
         train_x, train_t = _handle_input_dimensionality(train_x, train_t)
-
         input_dim = train_x.shape[-1]
-        self.train_x_tensor = torch.from_numpy(train_x).contiguous().float()
-        self.train_t_tensor = torch.from_numpy(train_t).contiguous().float().flatten()
 
-        ## --- Setup model --- ##
+        # b) normalize data to exhibit zero mean and variance
+        self._compute_normalization_stats(train_x, train_t)
+        train_x_normalized, train_t_normalized = self._normalize_data(train_x, train_t)
+
+        # c) Convert the data into pytorch tensors
+        self.train_x_tensor = torch.from_numpy(train_x_normalized).contiguous().float()
+        self.train_t_tensor = torch.from_numpy(train_t_normalized).contiguous().float().flatten()
+
+        """  ------ Setup model ------ """
         self.parameters = []
 
-        # a) determine kernel map & module
+        # A) determine kernel map & module
 
         if covar_module == 'NN':
             assert learning_mode in ['learn_kernel', 'both'], 'neural network parameters must be learned'
@@ -67,8 +76,7 @@ class GPRegressionLearned:
         if covar_module == 'SE':
             covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=feature_dim))
 
-
-        # b) determine mean map & module
+        # B) determine mean map & module
 
         if mean_module == 'NN':
             assert learning_mode in ['learn_mean', 'both'], 'neural network parameters must be learned'
@@ -90,13 +98,12 @@ class GPRegressionLearned:
 
         self.model = LearnedGPRegressionModel(self.train_x_tensor, self.train_t_tensor, self.likelihood,
                                               learned_kernel=nn_kernel_map, learned_mean=nn_mean_fn,
-                                              covar_module=covar_module, mean_module=mean_module,
-                                              feature_dim=feature_dim)
+                                              covar_module=covar_module, mean_module=mean_module)
 
         self.mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.model)
 
 
-        # D) determine which parameters and setup optimizer
+        # D) determine which parameters are trained and setup optimizer
 
         if learning_mode in ["learn_kernel", "both"]:
             self.parameters.append({'params': self.model.covar_module.hyperparameters(), 'lr': self.lr_params})
@@ -113,7 +120,7 @@ class GPRegressionLearned:
 
         self.fitted = False
 
-    def fit(self, verbose=True, valid_x=None, valid_t=None):
+    def fit(self, verbose=True, valid_x=None, valid_t=None, log_period=500):
         """
         fits prior parameters of the  GPC model by maximizing the mll of the training data
 
@@ -121,6 +128,7 @@ class GPRegressionLearned:
             verbose: (boolean) whether to print training progress
             valid_x: (np.ndarray) validation inputs - shape: (n_sampls, ndim_x)
             valid_y: (np.ndarray) validation targets - shape: (n_sampls, 1)
+            log_period: (int) number of steps after which to print stats
         """
         self.model.train()
         self.likelihood.train()
@@ -139,7 +147,7 @@ class GPRegressionLearned:
                 self.optimizer.step()
 
                 # print training stats stats
-                if verbose and (itr == 1 or itr % 100 == 0):
+                if verbose and (itr == 1 or itr % log_period == 0):
                     duration = time.time() - t
                     t = time.time()
 
@@ -149,11 +157,18 @@ class GPRegressionLearned:
                     if valid_x is not None:
                         self.model.eval()
                         self.likelihood.eval()
-                        valid_ll, _ = self.eval(valid_x, valid_t)
+                        valid_ll, valid_rmse = self.eval(valid_x, valid_t)
                         self.model.train()
                         self.likelihood.train()
 
-                        message += ' - Valid-LL: %.3f' % valid_ll
+                        message += ' - Valid-LL: %.3f - Valid-RMSE %.3f' %(valid_ll, valid_rmse)
+
+                        # # TODO: delete this extra part
+                        # print("{:<30}{:<30}".format('mean', self.model.mean_module.constant.item()))
+                        # print("{:<30}{:<30}".format('noise_std', self.likelihood.noise.item()))
+                        # print("{:<30}{:<30}".format('outputscale', self.model.covar_module.outputscale.item()))
+                        # print("{:<30}{:<30}".format('lengthscale',
+                        #                             self.model.covar_module.base_kernel.lengthscale.item()))
 
                     self.logger.info(message)
 
@@ -165,23 +180,32 @@ class GPRegressionLearned:
         self.model.eval()
         self.likelihood.eval()
 
-    def predict(self, test_x):
+    def predict(self, test_x, return_density=False):
         """
         computes the predictive distribution of the targets p(t|test_x, train_x, train_y)
 
         Args:
             test_x: (ndarray) query input data of shape (n_samples, ndim_x)
+            return_density (bool) whether to return a density object or
 
         Returns:
             (pred_mean, pred_std) predicted mean and standard deviation corresponding to p(y_test|X_test, X_train, y_train)
         """
         with torch.no_grad():
-            test_x_tensor = torch.from_numpy(test_x).contiguous().float()
-            pred = self.likelihood(self.model(test_x_tensor))
-            pred_mean = pred.mean
-            pred_std = pred.stddev
+            test_x_normalized = self._normalize_data(test_x)
+            test_x_tensor = torch.from_numpy(test_x_normalized).contiguous().float()
 
-        return pred_mean.numpy(), pred_std.numpy()
+            pred_dist = self.likelihood(self.model(test_x_tensor))
+            pred_dist_transformed = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
+                                                                  normalization_std=self.y_std)
+            if return_density:
+                return pred_dist_transformed
+            else:
+                pred_mean = pred_dist.mean.numpy()
+                pred_std = pred_dist.stddev.numpy()
+
+                pred_mean, pred_std = self._unnormalize_prediction(pred_mean, pred_std)
+                return pred_mean, pred_std
 
 
     def eval(self, test_x, test_t):
@@ -195,15 +219,14 @@ class GPRegressionLearned:
         Returns: (avg_log_likelihood, rmse)
 
         """
+        # convert to tensors
+        test_x, test_t = _handle_input_dimensionality(test_x, test_t)
+        test_t_tensor = torch.from_numpy(test_t).contiguous().float().flatten()
+
         with torch.no_grad():
-            test_x_tensor = torch.from_numpy(test_x).contiguous().float()
-            test_t_tensor = torch.from_numpy(test_t).contiguous().float().flatten()
-
-            pred = self.likelihood(self.model(test_x_tensor))
-
-            pred_dist = torch.distributions.normal.Normal(loc=pred.mean, scale=pred.stddev)
-            avg_log_likelihood = torch.mean(pred_dist.log_prob(test_t_tensor))
-            rmse = torch.mean(torch.pow(pred.mean - test_t_tensor, 2)).sqrt()
+            pred_dist = self.predict(test_x, return_density=True)
+            avg_log_likelihood = pred_dist.log_prob(test_t_tensor) / test_t_tensor.shape[0]
+            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt()
 
             return avg_log_likelihood.item(), rmse.item()
 
@@ -218,4 +241,29 @@ class GPRegressionLearned:
         self.model.load_state_dict(state_dict['model'])
         self.optimizer.load_state_dict(state_dict['optimizer'])
 
+    def _compute_normalization_stats(self, X, Y):
+        # save mean and variance of data for normalization
+        self.x_mean, self.y_mean = np.mean(X, axis=0), np.mean(Y, axis=0)
+        self.x_std, self.y_std = np.std(X, axis=0), np.std(Y, axis=0)
 
+    def _normalize_data(self, X, Y=None):
+        assert hasattr(self, "x_mean") and hasattr(self, "x_std"), "requires computing normalization stats beforehand"
+        assert hasattr(self, "y_mean") and hasattr(self, "y_std"), "requires computing normalization stats beforehand"
+
+        X_normalized = (X - self.x_mean) / self.x_std
+
+        if Y is None:
+            return X_normalized
+        else:
+            Y_normalized = (Y - self.y_mean) / self.y_std
+            return X_normalized, Y_normalized
+
+    def _unnormalize_prediction(self, mean_pred, std_pred=None):
+        assert hasattr(self, "y_mean") and hasattr(self, "y_std"), "requires computing normalization stats beforehand"
+
+        mean_pred = mean_pred * self.y_std + self.y_mean
+        if std_pred is None:
+            return mean_pred
+        else:
+            std_pred = std_pred * self.y_std
+            return mean_pred, std_pred

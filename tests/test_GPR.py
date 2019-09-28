@@ -12,13 +12,14 @@ class TestGPR_mll(unittest.TestCase):
         ## --- generate toy data --- #
 
         torch.manual_seed(22)
+        np.random.seed(25)
 
         # train
         n_train_points = 60
         self.x_train = np.linspace(-2, 2, num=n_train_points)
 
-        self.y_train_zero = self.x_train * 0
-        self.y_train_two = self.x_train * 0 + 2
+        self.y_train_zero = self.x_train * 0 + np.random.normal(scale=0.02, size=self.x_train.shape)
+        self.y_train_two = self.x_train * 0 + 2 + np.random.normal(scale=0.02, size=self.x_train.shape)
         self.y_train_sin = np.sin(4* self.x_train)
 
         # test
@@ -26,8 +27,8 @@ class TestGPR_mll(unittest.TestCase):
 
         self.x_test = np.linspace(-2.1, 2.1, num=n_test_points)
 
-        self.y_test_zero = self.x_test * 0
-        self.y_test_two = self.x_test * 0 + 2
+        self.y_test_zero = self.x_test * 0 + np.random.normal(scale=0.02, size=self.x_test.shape)
+        self.y_test_two = self.x_test * 0 + 2 + np.random.normal(scale=0.02, size=self.x_test.shape)
         self.y_test_sin = np.sin(4 * self.x_test)
 
     def test_random_seed_consistency(self):
@@ -72,18 +73,18 @@ class TestGPR_mll(unittest.TestCase):
 
 
     def test_mean_learning(self):
-        for mean_module in ['NN', 'constant']:
+        for mean_module in ['NN']:
 
-            gpr_model_vanilla = GPRegressionLearned(self.x_train, self.y_train_two, learning_mode='vanilla', num_iter_fit=20,
+            gpr_model_vanilla = GPRegressionLearned(self.x_train, self.y_train_sin, learning_mode='vanilla', num_iter_fit=20,
                                                     mean_module='constant', covar_module='SE')
             gpr_model_vanilla.fit()
 
-            gpr_model_learn_mean = GPRegressionLearned(self.x_train, self.y_train_two, learning_mode='learn_mean', num_iter_fit=100,
+            gpr_model_learn_mean = GPRegressionLearned(self.x_train, self.y_train_sin, learning_mode='learn_mean', num_iter_fit=100,
                                                        mean_module=mean_module, covar_module='SE', mean_nn_layers=(16, 16))
             gpr_model_learn_mean.fit()
 
             ll_vanilla, rmse_vanilla = gpr_model_vanilla.eval(self.x_train, self.y_train_two)
-            ll_mean, rmse_mean = gpr_model_learn_mean.eval(self.x_train, self.y_train_two)
+            ll_mean, rmse_mean = gpr_model_learn_mean.eval(self.x_train, self.y_train_sin)
 
             print(ll_mean, ll_vanilla)
             print(rmse_mean, rmse_vanilla)
