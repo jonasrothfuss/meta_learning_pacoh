@@ -201,10 +201,8 @@ class GPRegressionLearned:
             if return_density:
                 return pred_dist_transformed
             else:
-                pred_mean = pred_dist.mean.numpy()
-                pred_std = pred_dist.stddev.numpy()
-
-                pred_mean, pred_std = self._unnormalize_prediction(pred_mean, pred_std)
+                pred_mean = pred_dist_transformed.mean.numpy()
+                pred_std = pred_dist_transformed.stddev.numpy()
                 return pred_mean, pred_std
 
 
