@@ -6,6 +6,8 @@ from src.GPR_meta_mll import GPRegressionMetaLearned
 from gpytorch.kernels import CosineKernel
 import torch
 
+from src.util import AsyncExecutor, LoopExecutor
+
 class TestGPR_mll(unittest.TestCase):
 
     def setUp(self):
@@ -226,7 +228,7 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         # meta-learning with 2 datasets
         gp_meta = GPRegressionMetaLearned(self.train_data_tuples[:2], learning_mode='both', mean_nn_layers=(16, 16),
-                                          kernel_nn_layers=(16, 16), num_iter_fit=5000, covar_module='SE',
+                                          kernel_nn_layers=(16, 16), num_iter_fit=3000, covar_module='SE',
                                           mean_module='NN', weight_decay=0.0)
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
@@ -235,7 +237,7 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         # meta-learning with 10 datasets
         gp_meta = GPRegressionMetaLearned(self.train_data_tuples, learning_mode='both', mean_nn_layers=(16, 16),
-                                          kernel_nn_layers=(16, 16), num_iter_fit=5000, covar_module='SE',
+                                          kernel_nn_layers=(16, 16), num_iter_fit=3000, covar_module='SE',
                                           mean_module='NN', weight_decay=0.0)
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
@@ -251,35 +253,32 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         # check that meta-learning improves upon normal learned GP
         torch.manual_seed(60)
+        num_iter_fit = 1000
 
         # meta-learning
         gp_meta = GPRegressionMetaLearned(self.train_data_tuples, learning_mode='both', mean_nn_layers=(64, 64),
-                                          covar_module='SE', mean_module='NN', weight_decay=0.0, num_iter_fit=10000)
+                                          covar_module='SE', mean_module='NN', weight_decay=0.0, num_iter_fit=num_iter_fit)
 
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
         test_ll_meta, test_rmse_meta = gp_meta.eval_datasets(self.test_data_tuples)
         print('Test log-likelihood meta:', test_ll_meta)
 
-        # no meta-learning
-
         ll_list = []
 
-        for (x_context, t_context, x_test, t_test) in self.test_data_tuples:
-
+        def fit_eval_gpr(x_context, t_context, x_test, t_test):
             gpr = GPRegressionLearned(x_context, t_context, learning_mode='both', mean_nn_layers=(64, 64),
-                                      covar_module='SE', mean_module='NN', weight_decay=0.0, num_iter_fit=10000)
+                                      covar_module='SE', mean_module='NN', weight_decay=0.0, num_iter_fit=num_iter_fit)
             gpr.fit(valid_x=x_test, valid_t=t_test)
 
-            ll_list.append(gpr.eval(x_test, t_test)[0])
+            return gpr.eval(x_test, t_test)[0]
 
+        ll_list = [fit_eval_gpr(*data_tuple) for data_tuple in self.test_data_tuples]
         test_ll_normal = np.mean(ll_list)
 
         print('Test log-likelihood normal:', test_ll_normal)
 
         self.assertGreater(test_ll_meta, test_ll_normal)
-
-
 
 
 """ --- helper functions for data generation ---"""

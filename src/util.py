@@ -48,3 +48,59 @@ def get_logger(log_dir=None, log_file='output.log', expname=''):
             logger.addHandler(fh)
 
     return logger
+
+""" ------ Lightweight mltiprocessing utilities ------ """
+
+from multiprocessing import Process
+import multiprocessing
+import numpy as np
+
+class AsyncExecutor:
+
+    def __init__(self, n_jobs=1):
+        self.num_workers = n_jobs if n_jobs > 0 else multiprocessing.cpu_count()
+        self._pool = []
+        self._populate_pool()
+
+    def run(self, target, *args_iter, verbose=False):
+        workers_idle = [False] * self.num_workers
+        tasks = list(zip(*args_iter))
+        n_tasks = len(tasks)
+
+        while not all(workers_idle):
+            for i in range(self.num_workers):
+                if not self._pool[i].is_alive():
+                    self._pool[i].terminate()
+                    if len(tasks) > 0:
+                        if verbose:
+                          print('task %i of %i'%(n_tasks-len(tasks), n_tasks))
+                        next_task = tasks.pop(0)
+                        self._pool[i] = _start_process(target, next_task)
+                    else:
+                        workers_idle[i] = True
+
+    def _populate_pool(self):
+        self._pool = [_start_process(_dummy_fun) for _ in range(self.num_workers)]
+
+class LoopExecutor:
+
+    def run(self, target, *args_iter, verbose=False):
+        tasks = list(zip(*args_iter))
+        n_tasks = len(tasks)
+
+
+        for i, task in enumerate(tasks):
+            target(*task)
+            if verbose:
+                print('task %i of %i'%(n_tasks-len(tasks), n_tasks))
+
+def _start_process(target, args=None):
+    if args:
+        p = Process(target=target, args=args)
+    else:
+        p = Process(target=target)
+    p.start()
+    return p
+
+def _dummy_fun():
+    pass

@@ -14,7 +14,7 @@ Y_LOW = -2.5
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_DIR, 'data')
 MNIST_DIR = os.path.join(DATA_DIR, 'mnist')
-PHYSIONET_DIR = "/cluster/work/grlab/projects/projects2019-MNAR_VAE/data/physionet2012"
+PHYSIONET_DIR = os.path.join(DATA_DIR, 'physionet2012')
 
 class MetaDataset():
 

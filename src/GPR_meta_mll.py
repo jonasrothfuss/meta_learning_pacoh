@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 
-from src.models import LearnedGPRegressionModel, NeuralNetwork
+from src.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
 from src.util import _handle_input_dimensionality, get_logger
 
 
@@ -67,21 +67,24 @@ class GPRegressionMetaLearned:
 
         self.task_dicts = []
 
-        for train_x, train_t in meta_train_data:
-            # Convert the data into arrays of torch tensors
-            train_x_tensor = torch.from_numpy(train_x).contiguous().float()
-            train_t_tensor = torch.from_numpy(train_t).contiguous().float().flatten()
+        for train_x, train_t in meta_train_data: # TODO: consider parallelizing this loop
 
-            gp_model = LearnedGPRegressionModel(train_x_tensor, train_t_tensor, self.likelihood,
+            task_dict = {}
+
+            # add data stats to task dict
+            task_dict = self._compute_normalization_stats(train_x, train_t, stats_dict=task_dict)
+            train_x, train_t = self._normalize_data(train_x, train_t, stats_dict=task_dict)
+
+            # Convert the data into arrays of torch tensors
+            task_dict['train_x'] = torch.from_numpy(train_x).contiguous().float()
+            task_dict['train_t'] = torch.from_numpy(train_t).contiguous().float().flatten()
+
+            task_dict['model'] = LearnedGPRegressionModel(task_dict['train_x'], task_dict['train_t'], self.likelihood,
                                               learned_kernel=self.nn_kernel_map, learned_mean=self.nn_mean_fn,
-                                              covar_module=self.covar_module, mean_module=self.mean_module,
-                                              feature_dim=feature_dim)
-            self.task_dicts.append({
-                'train_x': train_x_tensor,
-                'train_t': train_t_tensor,
-                'model': gp_model,
-                'mll_fn': gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, gp_model)
-            })
+                                              covar_module=self.covar_module, mean_module=self.mean_module)
+            task_dict['mll_fn'] = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, task_dict['model'])
+
+            self.task_dicts.append(task_dict)
 
         if optimizer == 'Adam':
             self.optimizer = torch.optim.AdamW(self.shared_parameters)
@@ -149,7 +152,6 @@ class GPRegressionMetaLearned:
         self.likelihood.eval()
 
 
-
     def predict(self, test_context_x, test_context_t, test_x, return_density=False):
         """
         computes the predictive distribution of the targets p(t|test_x, test_context_x, test_context_t)
@@ -169,27 +171,32 @@ class GPRegressionMetaLearned:
             test_x = np.expand_dims(test_x, axis=-1)
         assert test_x.shape[1] == test_context_x.shape[1]
 
-        with torch.no_grad():
-            test_context_x_tensor = torch.from_numpy(test_context_x).contiguous().float()
-            test_context_t_tensor = torch.from_numpy(test_context_t).contiguous().float().flatten()
+        # normalize data and convert to tensor
+        data_stats = self._compute_normalization_stats(test_context_x, test_context_t, stats_dict={})
+        test_context_x, test_context_t = self._normalize_data(test_context_x, test_context_t, stats_dict=data_stats)
+        test_context_x_tensor = torch.from_numpy(test_context_x).contiguous().float()
+        test_context_t_tensor = torch.from_numpy(test_context_t).contiguous().float().flatten()
 
+        test_x = self._normalize_data(X=test_x, Y=None, stats_dict=data_stats)
+        test_x_tensor = torch.from_numpy(test_x).contiguous().float()
+
+        with torch.no_grad():
             # compute posterior given the context data
             gp_model = LearnedGPRegressionModel(test_context_x_tensor, test_context_t_tensor, self.likelihood,
                                                 learned_kernel=self.nn_kernel_map, learned_mean=self.nn_mean_fn,
-                                                covar_module=self.covar_module, mean_module=self.mean_module,
-                                                feature_dim=self.feature_dim)
+                                                covar_module=self.covar_module, mean_module=self.mean_module)
             gp_model.eval()
             self.likelihood.eval()
-            test_x_tensor = torch.from_numpy(test_x).contiguous().float()
-            pred = self.likelihood(gp_model(test_x_tensor))
-            pred_mean = pred.mean
-            pred_std = pred.stddev
+            pred_dist = self.likelihood(gp_model(test_x_tensor))
+            pred_dist_transformed = AffineTransformedDistribution(pred_dist, normalization_mean=data_stats['y_mean'],
+                                                                  normalization_std=data_stats['y_std'])
 
         if return_density:
-            return pred
+            return pred_dist_transformed
         else:
+            pred_mean = pred_dist_transformed.mean
+            pred_std = pred_dist_transformed.stddev
             return pred_mean.numpy(), pred_std.numpy()
-
 
     def eval(self, test_context_x, test_context_t, test_x, test_t):
         """
@@ -205,15 +212,14 @@ class GPRegressionMetaLearned:
 
         test_context_x, test_context_t = _handle_input_dimensionality(test_context_x, test_context_t)
         test_x, test_t = _handle_input_dimensionality(test_x, test_t)
+        test_t_tensor = torch.from_numpy(test_t).contiguous().float().flatten()
 
         with torch.no_grad():
             pred_dist = self.predict(test_context_x, test_context_t, test_x, return_density=True)
+            avg_log_likelihood = pred_dist.log_prob(test_t_tensor) / test_t_tensor.shape[0]
+            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt()
 
-            test_t_tensor = torch.from_numpy(test_t).contiguous().float().flatten()
-            avg_log_likelihood = pred_dist.log_prob(test_t_tensor).item() / test_t_tensor.shape[0]
-            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt().item()
-
-            return avg_log_likelihood, rmse
+            return avg_log_likelihood.item(), rmse.item()
 
     def eval_datasets(self, test_tuples):
         """
@@ -294,3 +300,27 @@ class GPRegressionMetaLearned:
 
         if learning_mode in ["learn_mean", "both"] and self.mean_module is not None:
             self.shared_parameters.append({'params': self.mean_module.hyperparameters(), 'lr': self.lr_params})
+
+
+    def _compute_normalization_stats(self, X, Y, stats_dict=None):
+        if stats_dict is None:
+            stats_dict = {}
+
+        # compute mean and std of data for normalization
+        stats_dict['x_mean'], stats_dict['y_mean'] = np.mean(X, axis=0), np.mean(Y, axis=0)
+        stats_dict['x_std'], stats_dict['y_std'] = np.std(X, axis=0), np.std(Y, axis=0)
+
+        return stats_dict
+
+
+    def _normalize_data(self, X, Y=None, stats_dict=None):
+        assert "x_mean" in stats_dict and "x_std" in stats_dict, "requires computing normalization stats beforehand"
+        assert "y_mean" in stats_dict and "y_std" in stats_dict, "requires computing normalization stats beforehand"
+
+        X_normalized = (X - stats_dict["x_mean"]) / stats_dict["x_std"]
+
+        if Y is None:
+            return X_normalized
+        else:
+            Y_normalized = (Y - stats_dict["y_mean"]) / stats_dict["y_std"]
+            return X_normalized, Y_normalized
