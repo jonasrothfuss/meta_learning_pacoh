@@ -6,7 +6,6 @@ from src.GPR_meta_mll import GPRegressionMetaLearned
 from gpytorch.kernels import CosineKernel
 import torch
 
-from src.util import AsyncExecutor, LoopExecutor
 
 class TestGPR_mll(unittest.TestCase):
 
@@ -263,8 +262,6 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         test_ll_meta, test_rmse_meta = gp_meta.eval_datasets(self.test_data_tuples)
         print('Test log-likelihood meta:', test_ll_meta)
-
-        ll_list = []
 
         def fit_eval_gpr(x_context, t_context, x_test, t_test):
             gpr = GPRegressionLearned(x_context, t_context, learning_mode='both', mean_nn_layers=(64, 64),
