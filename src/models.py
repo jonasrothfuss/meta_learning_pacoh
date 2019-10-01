@@ -1,56 +1,16 @@
 import torch
 import gpytorch
+import math
 
 from gpytorch.variational import CholeskyVariationalDistribution
 from gpytorch.variational import VariationalStrategy
+
+""" ----------------------------------------------------"""
+""" ------------ Probability Distributions ------------ """
+""" ----------------------------------------------------"""
+
 from torch.distributions import Distribution
-
 from torch.distributions import TransformedDistribution, AffineTransform
-
-# class ConstantMeanLight(Mean):
-#     def __init__(self, constant=torch.ones(1), batch_shape=torch.Size()):
-#         super(ConstantMeanLight, self).__init__()
-#         self.batch_shape = batch_shape
-#         self.constant_param = constant
-#
-#     def forward(self, input):
-#         if input.shape[:-2] == self.batch_shape:
-#             return self.constant.expand(input.shape[:-1])
-#         else:
-#             return self.constant.expand(_mul_broadcast_shape(input.shape[:-1], self.constant.shape))
-
-# class SEKernelLight(Kernel):
-#
-#     def __init__(self, length_scale, output_scale, **kwargs):
-#         super(SEKernelLight, self).__init__(has_lengthscale=True, **kwargs)
-#         self.lengthscale = length_scale
-#         self.output_scale = output_scale
-#
-#
-#     class RBFKernel(Kernel):
-#
-#         def __init__(self, **kwargs):
-#             super(RBFKernel, self).__init__(has_lengthscale=True, **kwargs)
-#
-#         def forward(self, x1, x2, diag=False, **params):
-#             if (
-#                     x1.requires_grad
-#                     or x2.requires_grad
-#                     or (self.ard_num_dims is not None and self.ard_num_dims > 1)
-#                     or diag
-#             ):
-#                 x1_ = x1.div(self.lengthscale)
-#                 x2_ = x2.div(self.lengthscale)
-#                 return self.covar_dist(x1_, x2_, square_dist=True, diag=diag,
-#                                        dist_postprocess_func=postprocess_rbf,
-#                                        postprocess=True, **params)
-#             return RBFCovariance().apply(x1, x2, self.lengthscale,
-#                                          lambda x1, x2: self.covar_dist(x1, x2,
-#                                                                         square_dist=True,
-#                                                                         diag=False,
-#                                                                         dist_postprocess_func=postprocess_rbf,
-#                                                                         postprocess=False,
-#                                                                         **params))
 
 class AffineTransformedDistribution(TransformedDistribution):
     r"""
@@ -124,6 +84,10 @@ class EqualWeightedMixtureDist(Distribution):
         return torch.logsumexp(log_probs_dists, dim=0) - torch.log(torch.tensor(self.n_dists).float())
 
 
+""" ----------------------------------------------------"""
+""" ------------------ Neural Network ------------------"""
+""" ----------------------------------------------------"""
+
 class NeuralNetwork(torch.nn.Sequential):
     """Trainable neural network kernel function for GPs."""
     def __init__(self, input_dim=2, output_dim=2, layer_sizes=(64, 64), nonlinearlity=torch.tanh,
@@ -151,6 +115,57 @@ class NeuralNetwork(torch.nn.Sequential):
         output = getattr(self, self.prefix + 'out')(output)
         return output
 
+
+""" ----------------------------------------------------"""
+""" ------------------ GP components -------------------"""
+""" ----------------------------------------------------"""
+
+from gpytorch.means import Mean
+from gpytorch.kernels import Kernel
+from gpytorch.functions import RBFCovariance
+from gpytorch.utils.broadcasting import _mul_broadcast_shape
+
+
+class ConstantMeanLight(Mean):
+    def __init__(self, constant=torch.ones(1), batch_shape=torch.Size()):
+        super(ConstantMeanLight, self).__init__()
+        self.batch_shape = batch_shape
+        self.constant = constant
+
+    def forward(self, input):
+        if input.shape[:-2] == self.batch_shape:
+            return self.constant.expand(input.shape[:-1])
+        else:
+            return self.constant.expand(_mul_broadcast_shape(input.shape[:-1], self.constant.shape))
+
+class SEKernelLight(Kernel):
+
+    def __init__(self, lengthscale=torch.tensor([1.0]), output_scale=torch.tensor(1.0)):
+        super(SEKernelLight, self).__init__()
+        self.length_scale = lengthscale
+        self.output_scale = output_scale
+        self.postprocess_rbf = lambda dist_mat: dist_mat.div_(-2).exp_()
+
+
+    def forward(self, x1, x2, diag=False, **params):
+        if (
+                x1.requires_grad
+                or x2.requires_grad
+                or (self.ard_num_dims is not None and self.ard_num_dims > 1)
+                or diag
+        ):
+            x1_ = x1.div(self.length_scale)
+            x2_ = x2.div(self.length_scale)
+            return self.covar_dist(x1_, x2_, square_dist=True, diag=diag,
+                                   dist_postprocess_func=self.postprocess_rbf,
+                                   postprocess=True, **params)
+        return self.output_scale * RBFCovariance().apply(x1, x2, self.length_scale,
+                                     lambda x1, x2: self.covar_dist(x1, x2,
+                                                                    square_dist=True,
+                                                                    diag=False,
+                                                                    dist_postprocess_func=self.postprocess_rbf,
+                                                                    postprocess=False,
+                                                                    **params))
 
 class LearnedGPRegressionModel(gpytorch.models.ExactGP):
     """GP model which can take a learned mean and learned kernel function."""
@@ -182,6 +197,8 @@ class LearnedGPRegressionModel(gpytorch.models.ExactGP):
 
         covar_x = self.covar_module(projected_x)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+
 
 # TODO: merge functionality in an abstract base class
 class LearnedGPClassificationModel(gpytorch.models.AbstractVariationalGP):

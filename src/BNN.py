@@ -90,9 +90,9 @@ class BayesianNeuralNetwork:
 
         # setup inference procedure
         if optimizer == 'Adam':
-            self.optimizer = pyro.optim.Adam({'lr':lr_params})
+            self.optimizer = pyro.optim.Adam({'lr': self.lr_params})
         elif optimizer == 'SGD':
-            self.optimizer = pyro.optim.SGD({'lr':lr_params})
+            self.optimizer = pyro.optim.SGD({'lr': self.lr_params})
         else:
             raise NotImplementedError('Optimizer must be Adam or SGD')
 
@@ -134,6 +134,7 @@ class BayesianNeuralNetwork:
 
         Args:
             test_x: (ndarray) query input data of shape (n_samples, ndim_x)
+            n_posterior_samples: (int) number of samples from posterior to average over
 
         Returns:
             (pred_mean, pred_std) predicted mean and standard deviation
@@ -142,7 +143,7 @@ class BayesianNeuralNetwork:
             test_x = np.expand_dims(test_x, axis=-1)
 
         with torch.no_grad():
-            test_x_tensor = torch.from_numpy(test_x).contiguous().float()
+            test_x_tensor = torch.from_numpy(test_x).contiguous()
 
             sampled_models = [self.guide(None, None) for _ in range(n_posterior_samples)]
             preds = torch.stack([model(test_x_tensor) for model in sampled_models], dim=0)

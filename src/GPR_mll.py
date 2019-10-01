@@ -163,13 +163,6 @@ class GPRegressionLearned:
 
                         message += ' - Valid-LL: %.3f - Valid-RMSE %.3f' %(valid_ll, valid_rmse)
 
-                        # # TODO: delete this extra part
-                        # print("{:<30}{:<30}".format('mean', self.model.mean_module.constant.item()))
-                        # print("{:<30}{:<30}".format('noise_std', self.likelihood.noise.item()))
-                        # print("{:<30}{:<30}".format('outputscale', self.model.covar_module.outputscale.item()))
-                        # print("{:<30}{:<30}".format('lengthscale',
-                        #                             self.model.covar_module.base_kernel.lengthscale.item()))
-
                     self.logger.info(message)
 
         else:
@@ -255,13 +248,3 @@ class GPRegressionLearned:
         else:
             Y_normalized = (Y - self.y_mean) / self.y_std
             return X_normalized, Y_normalized
-
-    def _unnormalize_prediction(self, mean_pred, std_pred=None):
-        assert hasattr(self, "y_mean") and hasattr(self, "y_std"), "requires computing normalization stats beforehand"
-
-        mean_pred = mean_pred * self.y_std + self.y_mean
-        if std_pred is None:
-            return mean_pred
-        else:
-            std_pred = std_pred * self.y_std
-            return mean_pred, std_pred
