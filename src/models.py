@@ -38,6 +38,10 @@ class AffineTransformedDistribution(TransformedDistribution):
     def stddev(self):
         return torch.exp(torch.log(self.base_dist.stddev) + torch.log(self.scale_tensor))
 
+    @property
+    def variance(self):
+        return torch.exp(torch.log(self.base_dist.variance) + 2 * torch.log(self.scale_tensor))
+
 
 class UnnormalizedExpDist(Distribution):
     r"""
@@ -73,7 +77,19 @@ class EqualWeightedMixtureDist(Distribution):
 
     @property
     def stddev(self):
-        return torch.mean(torch.stack([dist.stddev for dist in self.dists], dim=0), dim=0)
+        return torch.sqrt(self.variance)
+
+    @property
+    def variance(self):
+        means = torch.stack([dist.mean for dist in self.dists], dim=0)
+        var1 = torch.mean((means - torch.mean(means, dim=0))**2, dim=0)
+        var2 = torch.mean(torch.stack([dist.variance for dist in self.dists], dim=0), dim=0)
+
+        # check shape
+        original_shape = self.dists[0].mean.shape
+        assert var1.shape == var2.shape == original_shape
+
+        return var1 + var2
 
     @property
     def arg_constraints(self):
