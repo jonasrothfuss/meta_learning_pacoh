@@ -143,7 +143,7 @@ class BayesianNeuralNetwork:
             test_x = np.expand_dims(test_x, axis=-1)
 
         with torch.no_grad():
-            test_x_tensor = torch.from_numpy(test_x).contiguous()
+            test_x_tensor = torch.from_numpy(test_x).contiguous().float()
 
             sampled_models = [self.guide(None, None) for _ in range(n_posterior_samples)]
             preds = torch.stack([model(test_x_tensor) for model in sampled_models], dim=0)
