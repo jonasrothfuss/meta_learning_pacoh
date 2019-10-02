@@ -159,6 +159,7 @@ class SEKernelLight(Kernel):
     def __init__(self, lengthscale=torch.tensor([1.0]), output_scale=torch.tensor(1.0)):
         super(SEKernelLight, self).__init__()
         self.length_scale = lengthscale
+        self.ard_num_dims = lengthscale.shape[-1]
         self.output_scale = output_scale
         self.postprocess_rbf = lambda dist_mat: dist_mat.div_(-2).exp_()
 
