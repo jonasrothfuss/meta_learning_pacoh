@@ -280,49 +280,6 @@ class TestGPR_mll_meta(unittest.TestCase):
 
 """ --- helper functions for data generation ---"""
 
-from numbers import Number
-
-def _sinusoid(x, amplitude=1.0, period=1.0, x_shift=0.0, y_shift=0.0, slope=0.0, noise_std=0.0):
-    f = slope*x + amplitude * np.sin(period * (x - x_shift)) + y_shift
-    noise = np.random.normal(0, scale=noise_std, size=f.shape)
-    return f + noise
-
-def _sample_sinusoid(amp_low=0.2, amp_high=2.0, y_shift_mean=5.0, y_shift_std=0.3, slope_mean=0.0, slope_std=0.0,
-                     noise_std=0.1):
-    assert y_shift_std >= 0 and noise_std >= 0, "std must be non-negative"
-    amplitude = np.random.uniform(amp_low, amp_high)
-    y_shift = np.random.normal(loc=y_shift_mean, scale=y_shift_std)
-    slope = np.random.normal(loc=slope_mean, scale=slope_std)
-    return lambda x: slope * x + _sinusoid(x, amplitude=amplitude, y_shift=y_shift, noise_std=noise_std)
-
-def sample_sinusoid_regression_data(size=1, amp_low=0.8, amp_high=1.2, y_shift_mean=5.0, y_shift_std=0.1,
-                                        slope_mean=0.2, slope_std=0.01, noise_std=0.02):
-    """ samples a sinusoidal function and then data from the respective function
-
-        Args:
-            amp_low (float): min amplitude value
-            amp_high (float): max amplitude value
-            y_shift_mean (float): mean of Gaussian from which to sample the y_shift of the sinusoid
-            y_shift_std (float): std of Gaussian from which to sample the y_shift of the sinusoid
-            slope_mean (float: mean of Gaussian from which to sample the linear slope
-            slope_std (float): std of Gaussian from which to sample the linear slope
-            noise_std (float): std of the Gaussian observation noise
-
-        Returns:
-            (X, Y): ndarrays of dimensionality (size, 1)
-    """
-
-    if isinstance(size, Number):
-        size = (int(size),) # convert to tuple
-
-    f = _sample_sinusoid(amp_low=amp_low, amp_high=amp_high, y_shift_mean=y_shift_mean, y_shift_std=y_shift_std,
-                         slope_mean=slope_mean, slope_std=slope_std, noise_std=noise_std)
-    X = np.random.uniform(-5, 5, size=size + (1,))
-    Y = f(X)
-
-    assert X.shape[:-1] == Y.shape[:-1] == size # check that simulated data has required size
-    assert X.shape[-1] == X.shape[-1] == 1 # check that data is one-dimensional
-    return X, Y
 
 def sample_data_nonstationary(size=1):
     def _sample_fun():
