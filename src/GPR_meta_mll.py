@@ -12,7 +12,7 @@ class GPRegressionMetaLearned:
 
     def __init__(self, meta_train_data, learning_mode='both', lr_params=1e-3, weight_decay=0.0, feature_dim=2,
                  num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 task_batch_size=5, optimizer='Adam', random_seed=None):
+                 task_batch_size=5, normalize_data=True, optimizer='Adam', random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -42,7 +42,7 @@ class GPRegressionMetaLearned:
         assert optimizer in ['Adam', 'SGD']
 
         self.lr_params, self.weight_decay, self.feature_dim = lr_params, weight_decay, feature_dim
-        self.num_iter_fit, self.task_batch_size = num_iter_fit, task_batch_size
+        self.num_iter_fit, self.task_batch_size, self.normalize_data = num_iter_fit, task_batch_size, normalize_data
 
         if random_seed is not None:
             torch.manual_seed(random_seed)
@@ -306,9 +306,13 @@ class GPRegressionMetaLearned:
         if stats_dict is None:
             stats_dict = {}
 
-        # compute mean and std of data for normalization
-        stats_dict['x_mean'], stats_dict['y_mean'] = np.mean(X, axis=0), np.mean(Y, axis=0)
-        stats_dict['x_std'], stats_dict['y_std'] = np.std(X, axis=0), np.std(Y, axis=0)
+        if self.normalize_data:
+            # compute mean and std of data for normalization
+            stats_dict['x_mean'], stats_dict['y_mean'] = np.mean(X, axis=0), np.mean(Y, axis=0)
+            stats_dict['x_std'], stats_dict['y_std'] = np.std(X, axis=0), np.std(Y, axis=0)
+        else:
+            stats_dict['x_mean'], stats_dict['y_mean'] = np.zeros(X.shape[1]), np.zeros(Y.shape[1])
+            stats_dict['x_std'], stats_dict['y_std'] = np.ones(X.shape[1]), np.ones(Y.shape[1])
 
         return stats_dict
 

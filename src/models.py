@@ -161,7 +161,7 @@ class SEKernelLight(Kernel):
         self.length_scale = lengthscale
         self.ard_num_dims = lengthscale.shape[-1]
         self.output_scale = output_scale
-        self.postprocess_rbf = lambda dist_mat: dist_mat.div_(-2).exp_()
+        self.postprocess_rbf = lambda dist_mat: self.output_scale * dist_mat.div_(-2).exp_()
 
 
     def forward(self, x1, x2, diag=False, **params):

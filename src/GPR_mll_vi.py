@@ -18,7 +18,7 @@ class GPRegressionLearnedVI:
 
     def __init__(self, train_x, train_t, lr_params=1e-3, num_iter_fit=10000, prior_factor=0.01, feature_dim=2,
                  covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 optimizer='Adam', svi_batch_size=100, random_seed=None):
+                 optimizer='Adam', svi_batch_size=100, normalize_data=True, random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -41,6 +41,7 @@ class GPRegressionLearnedVI:
         """
         self.logger = get_logger()
         self.num_iter_fit, self.prior_factor, self.feature_dim = num_iter_fit, prior_factor, feature_dim
+        self.normalize_data = normalize_data
 
         if random_seed is not None:
             pyro.set_rng_seed(random_seed)
@@ -178,8 +179,12 @@ class GPRegressionLearnedVI:
 
     def _compute_normalization_stats(self, X, Y):
         # save mean and variance of data for normalization
-        self.x_mean, self.y_mean = np.mean(X, axis=0), np.mean(Y, axis=0)
-        self.x_std, self.y_std = np.std(X, axis=0), np.std(Y, axis=0)
+        if self.normalize_data:
+            self.x_mean, self.y_mean = np.mean(X, axis=0), np.mean(Y, axis=0)
+            self.x_std, self.y_std = np.std(X, axis=0), np.std(Y, axis=0)
+        else:
+            self.x_mean, self.y_mean = np.zeros(X.shape[1]), np.zeros(Y.shape[1])
+            self.x_std, self.y_std = np.ones(X.shape[1]), np.ones(Y.shape[1])
 
     def _normalize_data(self, X, Y=None):
         assert hasattr(self, "x_mean") and hasattr(self, "x_std"), "requires computing normalization stats beforehand"

@@ -14,7 +14,7 @@ class GPRegressionLearned:
 
     def __init__(self, train_x, train_t, learning_mode='both', lr_params=1e-3, weight_decay=0.0, feature_dim=2,
                  num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 optimizer='Adam', random_seed=None):
+                 optimizer='Adam', normalize_data=True, random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -43,6 +43,7 @@ class GPRegressionLearned:
         assert optimizer in ['Adam', 'SGD']
 
         self.lr_params, self.weight_decay, self.num_iter_fit = lr_params, weight_decay, num_iter_fit
+        self.normalize_data = normalize_data
 
         if random_seed is not None:
             torch.manual_seed(random_seed)
@@ -234,8 +235,12 @@ class GPRegressionLearned:
 
     def _compute_normalization_stats(self, X, Y):
         # save mean and variance of data for normalization
-        self.x_mean, self.y_mean = np.mean(X, axis=0), np.mean(Y, axis=0)
-        self.x_std, self.y_std = np.std(X, axis=0), np.std(Y, axis=0)
+        if self.normalize_data:
+            self.x_mean, self.y_mean = np.mean(X, axis=0), np.mean(Y, axis=0)
+            self.x_std, self.y_std = np.std(X, axis=0), np.std(Y, axis=0)
+        else:
+            self.x_mean, self.y_mean = np.zeros(X.shape[1]), np.zeros(Y.shape[1])
+            self.x_std, self.y_std = np.ones(X.shape[1]), np.ones(Y.shape[1])
 
     def _normalize_data(self, X, Y=None):
         assert hasattr(self, "x_mean") and hasattr(self, "x_std"), "requires computing normalization stats beforehand"
