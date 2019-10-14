@@ -14,7 +14,7 @@ class GPRegressionLearned:
 
     def __init__(self, train_x, train_t, learning_mode='both', lr_params=1e-3, weight_decay=0.0, feature_dim=2,
                  num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 optimizer='Adam', normalize_data=True, random_seed=None):
+                 optimizer='Adam', normalize_data=True, lr_scheduler=True, random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -43,7 +43,7 @@ class GPRegressionLearned:
         assert optimizer in ['Adam', 'SGD']
 
         self.lr_params, self.weight_decay, self.num_iter_fit = lr_params, weight_decay, num_iter_fit
-        self.normalize_data = normalize_data
+        self.normalize_data, self.lr_scheduler = normalize_data, lr_scheduler
 
         if random_seed is not None:
             torch.manual_seed(random_seed)
@@ -119,6 +119,11 @@ class GPRegressionLearned:
         else:
             raise NotImplementedError('Optimizer must be Adam or SGD')
 
+        if self.lr_scheduler:
+            self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='max', factor=0.2)
+        else:  # factor 1.0 --> no lr decay
+            self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='max', factor=1.0)
+
         self.fitted = False
 
     def fit(self, verbose=True, valid_x=None, valid_t=None, log_period=500):
@@ -148,7 +153,7 @@ class GPRegressionLearned:
                 self.optimizer.step()
 
                 # print training stats stats
-                if verbose and (itr == 1 or itr % log_period == 0):
+                if itr == 1 or itr % log_period == 0:
                     duration = time.time() - t
                     t = time.time()
 
@@ -159,12 +164,14 @@ class GPRegressionLearned:
                         self.model.eval()
                         self.likelihood.eval()
                         valid_ll, valid_rmse = self.eval(valid_x, valid_t)
+                        self.lr_scheduler.step(valid_ll)
                         self.model.train()
                         self.likelihood.train()
 
                         message += ' - Valid-LL: %.3f - Valid-RMSE %.3f' %(valid_ll, valid_rmse)
 
-                    self.logger.info(message)
+                    if verbose:
+                        self.logger.info(message)
 
         else:
             self.logger.info('Vanilla mode - nothing to fit')
