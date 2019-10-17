@@ -118,11 +118,12 @@ class GPRegressionMetaLearned:
 
         if len(self.shared_parameters) > 0:
             t = time.time()
+            cum_loss = 0.0
 
             for itr in range(1, self.num_iter_fit + 1):
 
-                self.optimizer.zero_grad()
                 loss = 0.0
+                self.optimizer.zero_grad()
 
                 for task_dict in self.rds_numpy.choice(self.task_dicts, size=self.task_batch_size):
 
@@ -133,12 +134,16 @@ class GPRegressionMetaLearned:
                 loss.backward()
                 self.optimizer.step()
 
+                cum_loss += loss
+
                 # print training stats stats
                 if itr == 1 or itr % log_period == 0:
                     duration = time.time() - t
+                    avg_loss = cum_loss / (log_period if itr > 1 else 1.0)
+                    cum_loss = 0.0
                     t = time.time()
 
-                    message = 'Iter %d/%d - Loss: %.6f - Time %.2f sec' % (itr, self.num_iter_fit, loss.item(), duration)
+                    message = 'Iter %d/%d - Loss: %.6f - Time %.2f sec' % (itr, self.num_iter_fit, avg_loss.item(), duration)
 
                     # if validation data is provided  -> compute the valid log-likelihood
                     if valid_tuples is not None:

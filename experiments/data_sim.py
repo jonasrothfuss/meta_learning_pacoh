@@ -283,7 +283,7 @@ class SinusoidNonstationaryDataset(MetaDataset):
 
 class GPFunctionsDataset(MetaDataset):
 
-    def __init__(self, noise_std=0.0, lengthscale=1.0, mean=0.0, x_low=-5, x_high=5, random_state=None):
+    def __init__(self, noise_std=0.1, lengthscale=1.0, mean=0.0, x_low=-5, x_high=5, random_state=None):
         self.noise_std, self.lengthscale, self.mean = noise_std, lengthscale, mean
         self.x_low, self.x_high = x_low, x_high
         super().__init__(random_state)
