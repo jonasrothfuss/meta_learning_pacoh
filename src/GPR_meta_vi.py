@@ -29,7 +29,7 @@ class GPRegressionMetaLearnedVI:
         Args:
             meta_train_data: list of tuples of ndarrays[(train_x_1, train_t_1), ..., (train_x_n, train_t_n)]
             lr: (float) learning rate for prior parameters
-            weight_decay: (float) weight decay penalty
+            weight_prior_scale: (float) scale of hyper-prior distribution on NN weights
             feature_dim: (int) output dimensionality of NN feature map for kernel function
             num_iter_fit: (int) number of gradient steps for fitting the parameters
             covar_module: (gpytorch.mean.Kernel) optional kernel module, default: RBF kernel
@@ -39,6 +39,8 @@ class GPRegressionMetaLearnedVI:
             learning_rate: (float) learning rate for AdamW optimizer
             task_batch_size: (int) batch size for meta training, i.e. number of tasks for computing grads
             optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
+            svi_batch_size (int): number of posterior samples to estimate grads
+            normalize_data (bool): whether to normalize the training / context data
             random_seed: (int) seed for pytorch
         """
         self.logger = get_logger()
@@ -93,17 +95,22 @@ class GPRegressionMetaLearnedVI:
 
                 # if validation data is provided  -> compute the valid log-likelihood
                 if valid_tuples is not None:
-                    valid_ll, valid_rmse = self.eval_datasets(valid_tuples)
+                    valid_ll, valid_rmse = self.eval_datasets(valid_tuples, mode='MAP')
                     message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f' % (np.mean(valid_ll), np.mean(valid_rmse))
 
                 self.logger.info(message)
 
-                print("-------- Parameter summary --------")
-                for param_name, param_value in pyro.get_param_store().named_parameters():
-                    try:
+        print("-------- Parameter summary --------")
+        with torch.no_grad():
+            for param_name, param_value in pyro.get_param_store().named_parameters():
+                try:
+                    if 'lengthscale' in param_name:
+                        print("{:<50}{:<30}{:<30}".format(param_name, param_value[0].item(),
+                                                          param_value[1].item()))
+                    else:
                         print("{:<50}{:<30}".format(param_name, param_value.item()))
-                    except:
-                        pass
+                except:
+                    pass
 
         self.fitted = True
 
@@ -206,7 +213,14 @@ class GPRegressionMetaLearnedVI:
 
         assert (all([len(valid_tuple) == 4 for valid_tuple in test_tuples]))
 
-        ll_list, rmse_list = list(zip(*[self.eval(*test_data_tuple, mode=mode) for test_data_tuple in test_tuples]))
+        ll_rmse_tuples = []
+        for test_data_tuple in test_tuples:
+            try:
+                ll_rmse_tuples.append(self.eval(*test_data_tuple, mode=mode))
+            except RuntimeError as e:
+                self.logger.warn('skipped one eval dataset due the following error: %s'%str(e))
+
+        ll_list, rmse_list = list(zip(* ll_rmse_tuples ))
 
         return np.mean(ll_list), np.mean(rmse_list)
 
@@ -299,13 +313,17 @@ class GPRegressionMetaLearnedVI:
                 lifted_kernel_nn = _lift_nn_prior(kernel_nn, "kernel_nn")
                 nn_kernel_fn = lifted_kernel_nn()
                 kernel_dim = self.feature_dim
+
+                lengthscale = torch.ones(kernel_dim)
+                outputscale = 1.0
             else:
                 nn_kernel_fn = None
                 kernel_dim = self.input_dim
 
-            lengthscale = pyro.sample("lengthscale",
-                                      LogNormal(0.0 * torch.ones(kernel_dim), 2.0 * torch.ones(kernel_dim)).to_event(1))
-            outputscale = pyro.sample("outputscale", LogNormal(torch.tensor(0.0), torch.tensor(20.0)))
+                lengthscale = pyro.sample("lengthscale",
+                                          LogNormal(0.0 * torch.ones(kernel_dim), 2.0 * torch.ones(kernel_dim)).to_event(1))
+                outputscale = pyro.sample("outputscale", LogNormal(torch.tensor(0.0), torch.tensor(20.0)))
+
             covar_module = SEKernelLight(lengthscale, outputscale)
 
             # noise variance prior
@@ -364,17 +382,21 @@ class GPRegressionMetaLearnedVI:
                 lifted_kernel_nn = _lift_nn_posterior(kernel_nn, "kernel_nn", mode_delta=mode_delta)
                 nn_kernel_fn = lifted_kernel_nn()
                 kernel_dim = self.feature_dim
+
+                lengthscale = torch.ones(kernel_dim)
+                outputscale = 1.0
+
             else:
                 nn_kernel_fn = None
                 kernel_dim = self.input_dim
 
-            lengthscale_q_loc = pyro.param(prefix + "lengthscale_q_loc", 0.0 * torch.ones(kernel_dim))
-            lengthscale_q_scale = pyro.param(prefix + "lengthscale_q_scale", 1.0 * torch.ones(kernel_dim))
-            lengthscale = pyro.sample("lengthscale", _delta_wrap(LogNormal(lengthscale_q_loc, lengthscale_q_scale)).to_event(1))
+                lengthscale_q_loc = pyro.param(prefix + "lengthscale_q_loc", 0.0 * torch.ones(kernel_dim))
+                lengthscale_q_scale = pyro.param(prefix + "lengthscale_q_scale", 1.0 * torch.ones(kernel_dim))
+                lengthscale = pyro.sample("lengthscale", _delta_wrap(LogNormal(lengthscale_q_loc, lengthscale_q_scale)).to_event(1))
 
-            outputscale_q_loc = pyro.param(prefix + "outputscale_q_loc", torch.tensor(0.0))
-            outputscale_q_scale = pyro.param(prefix + "outputscale_q_scale", torch.tensor(1.0))
-            outputscale = pyro.sample("outputscale", _delta_wrap(LogNormal(outputscale_q_loc, outputscale_q_scale)))
+                outputscale_q_loc = pyro.param(prefix + "outputscale_q_loc", torch.tensor(0.0))
+                outputscale_q_scale = pyro.param(prefix + "outputscale_q_scale", torch.tensor(1.0))
+                outputscale = pyro.sample("outputscale", _delta_wrap(LogNormal(outputscale_q_loc, outputscale_q_scale)))
 
             covar_module = SEKernelLight(lengthscale, outputscale)
 
