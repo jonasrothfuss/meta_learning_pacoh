@@ -18,6 +18,7 @@ setuptools.setup(
         'torch>=1.2.0',
         'gpytorch',
         'absl-py',
-        'pyro-ppl'
+        'pyro-ppl',
+        'future'
     ],
 )

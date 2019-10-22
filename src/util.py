@@ -46,8 +46,12 @@ def get_logger(log_dir=None, log_file='output.log', expname=''):
             fh.setFormatter(formatter)
             fh.setLevel(logging.INFO)
             logger.addHandler(fh)
-
+            logger.log_dir = log_dir
+        else:
+            logger.log_dir = None
     return logger
+
+
 
 """ ------ Lightweight mltiprocessing utilities ------ """
 

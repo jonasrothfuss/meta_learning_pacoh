@@ -6,3 +6,4 @@ mnist
 absl-py
 pandas
 pyro-ppl
+future
