@@ -2,6 +2,8 @@ import torch
 import gpytorch
 import time
 import pyro
+import inspect
+import math
 
 import numpy as np
 from pyro.distributions import Normal, InverseGamma, Delta
@@ -14,6 +16,7 @@ from src.models import LearnedGPRegressionModel, NeuralNetwork, UnnormalizedExpD
 from src.util import _handle_input_dimensionality, get_logger
 
 from pyro.distributions import Normal, Delta, Gamma, LogNormal
+from torch.utils.tensorboard import SummaryWriter
 
 
 
@@ -44,6 +47,14 @@ class GPRegressionMetaLearnedVI:
             random_seed: (int) seed for pytorch
         """
         self.logger = get_logger()
+        self.summary_writer = SummaryWriter(log_dir=self.logger.log_dir)
+
+        # document hyper-parameters
+        vars = locals()
+        hyperparams = {key: vars[key] for key in inspect.getargspec(self.__init__).args[2:]}
+        for key, value in hyperparams.items():
+            self.summary_writer.add_text('%s'%str(key), str(value))
+
 
         assert mean_module in ['NN', 'constant', 'zero'] or isinstance(mean_module, gpytorch.means.Mean)
         assert covar_module in ['NN', 'SE'] or isinstance(covar_module, gpytorch.kernels.Kernel)
@@ -92,13 +103,20 @@ class GPRegressionMetaLearnedVI:
                 t = time.time()
 
                 message = 'Iter %d/%d - Loss: %.6f - Time %.2f sec' % (itr, self.num_iter_fit, loss, duration)
+                self.summary_writer.add_scalar('duration', duration, itr)
+                self.summary_writer.add_scalar('loss', loss, itr)
 
                 # if validation data is provided  -> compute the valid log-likelihood
                 if valid_tuples is not None:
                     valid_ll, valid_rmse = self.eval_datasets(valid_tuples, mode='MAP')
                     message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f' % (np.mean(valid_ll), np.mean(valid_rmse))
+                    self.summary_writer.add_scalar('valid_ll', valid_ll, itr)
+                    self.summary_writer.add_scalar('valid_rmse', valid_rmse, itr)
 
                 self.logger.info(message)
+
+                entropy = self._guide_entropy()
+                self.summary_writer.add_scalar('guide_entropy', entropy, itr)
 
         print("-------- Parameter summary --------")
         with torch.no_grad():
@@ -429,6 +447,23 @@ class GPRegressionMetaLearnedVI:
             self.optimizer = pyro.optim.SGD({'lr': lr})
         else:
             raise NotImplementedError('Optimizer must be Adam or SGD')
+
+    def _guide_entropy(self):
+        with torch.no_grad():
+            log_det = 0.0
+            k = 0.0
+            for param_name, param_value in pyro.get_param_store().named_parameters():
+              if 'scale' in param_name or 'sigma' in param_name:
+                  if 'raw' in param_name:
+                      log_var = 2*torch.log(F.softplus(param_value))
+                  else:
+                      log_var = 2*torch.log(param_value)
+                  log_det += torch.sum(log_var)
+                  k += torch.prod(torch.tensor(log_var.size()))
+
+        entropy = 0.5 * k + 0.5 * k * torch.log(torch.tensor(2.0) * math.pi) + 0.5 * log_det
+        return entropy.item()
+
 
 
 def _lift_nn_prior(net, name, weight_prior_scale=1.0, bias_prior_scale=1000.0):

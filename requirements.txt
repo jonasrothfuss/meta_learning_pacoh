@@ -1,4 +1,4 @@
-torch==1.2.0
+torch==1.3.0
 matplotlib
 numpy
 gpytorch
@@ -7,3 +7,4 @@ absl-py
 pandas
 pyro-ppl
 future
+tensorboard

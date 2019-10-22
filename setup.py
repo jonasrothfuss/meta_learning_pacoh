@@ -15,7 +15,7 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     install_requires=[
         'numpy',
-        'torch>=1.2.0',
+        'torch>=1.3.0',
         'gpytorch',
         'absl-py',
         'pyro-ppl',
