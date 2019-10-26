@@ -119,17 +119,108 @@ class NeuralNetwork(torch.nn.Sequential):
             _normalize = lambda x: x
 
         self.layers = []
+        prev_size = input_dim
         for i, size in enumerate(layer_sizes):
-            setattr(self, self.prefix + 'fc_%i'%(i+1), _normalize(torch.nn.Linear(input_dim, size)))
+            setattr(self, self.prefix + 'fc_%i'%(i+1), _normalize(torch.nn.Linear(prev_size, size)))
             prev_size = size
         setattr(self, self.prefix + 'out', _normalize(torch.nn.Linear(prev_size, output_dim)))
 
     def forward(self, x):
+        output = x
         for i in range(1, self.n_layers+1):
-            output = getattr(self, self.prefix + 'fc_%i'%i)(x)
+            output = getattr(self, self.prefix + 'fc_%i'%i)(output)
             output = self.nonlinearlity(output)
         output = getattr(self, self.prefix + 'out')(output)
         return output
+
+""" ----------------------------------------------------"""
+""" ------------- Batched Neural Network ---------------"""
+""" ----------------------------------------------------"""
+
+import torch.nn as nn
+
+class LinearBatched(nn.Module):
+
+    def __init__(self, in_features, out_features):
+        super().__init__()
+        self.W = nn.Parameter(torch.Tensor(1, out_features, in_features))
+        self.b = nn.Parameter(torch.Tensor(1, out_features))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.W = _kaiming_uniform_batched(self.W, a=math.sqrt(5), nonlinearity='tanh')
+        if self.b is not None:
+            fan_in = self.b.size(-1)
+            bound = 1 / math.sqrt(fan_in)
+            nn.init.uniform_(self.b, -bound, bound)
+
+    def forward(self, x):
+        # out dimensions correspond to [nn_batch_size, data_batch_size, out_features)
+        return torch.bmm(x, self.W.permute(0, 2, 1)) + self.b[:, None, :]
+
+
+class NeuralNetworkBatched(torch.nn.Sequential):
+    """Trainable neural network that batches multiple sets of parameters. That is, each
+    """
+    def __init__(self, input_dim=2, output_dim=2, layer_sizes=(64, 64), nonlinearlity=torch.tanh, prefix='',):
+        super(NeuralNetworkBatched, self).__init__()
+        self.nonlinearlity = nonlinearlity
+        self.n_layers = len(layer_sizes)
+        self.prefix = prefix
+
+        self.layers = []
+        prev_size = input_dim
+        for i, size in enumerate(layer_sizes):
+            setattr(self, self.prefix + 'fc_%i'%(i+1), LinearBatched(prev_size, size))
+            prev_size = size
+        setattr(self, self.prefix + 'out', LinearBatched(prev_size, output_dim))
+
+    def forward(self, x):
+        model_batch_size = self.model_batch_size
+        if x.ndim == 2:
+            # introduce new dimension 0
+            x = torch.reshape(x, (1, x.shape[0], x.shape[1]))
+            # tile dimension 0 to model_batch size
+            x = x.repeat(model_batch_size, 1, 1)
+        else:
+            assert x.ndim == 3 and x.shape[0] == model_batch_size
+
+        output = x
+        for i in range(1, self.n_layers + 1):
+            output = getattr(self, self.prefix + 'fc_%i' % i)(output)
+            output = self.nonlinearlity(output)
+        output = getattr(self, self.prefix + 'out')(output)
+        return output
+
+    @property
+    def model_batch_size(self):
+        params = list(self.parameters())
+        model_batch_size = params[0].shape[0]
+        for param in self.parameters():
+            assert model_batch_size == param.shape[0]
+        return model_batch_size
+
+
+""" Initialization Helpers """
+
+
+def _calulate_fan(tensor, mode):
+    assert tensor.ndim == 3
+    if mode == 'fan_in':
+        return tensor.size(-1)
+    elif mode == 'fan_out':
+        return tensor.size(-2)
+    else:
+        raise AssertionError('mode must be either \'fan_in\' or \'fan_out\'')
+
+
+def _kaiming_uniform_batched(tensor, a=0., mode='fan_in', nonlinearity='tanh'):
+    fan = _calulate_fan(tensor, mode=mode)
+    gain = nn.init.calculate_gain(nonlinearity, a)
+    std = gain / math.sqrt(fan)
+    bound = math.sqrt(3.0) * std  # Calculate uniform bounds from standard deviation
+    with torch.no_grad():
+        return tensor.uniform_(-bound, bound)
 
 
 """ ----------------------------------------------------"""
