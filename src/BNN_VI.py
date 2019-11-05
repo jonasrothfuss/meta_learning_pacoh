@@ -168,7 +168,7 @@ class BayesianNeuralNetwork:
         """
         test_x, test_t = _handle_input_dimensionality(test_x, test_t)
 
-        test_t_tensor = torch.from_numpy(test_x).contiguous().float()
+        test_t_tensor = torch.from_numpy(test_t).contiguous().float()
 
         with torch.no_grad():
             mean, _ = self.predict(test_x, n_posterior_samples=n_posterior_samples, return_tensors=True)
