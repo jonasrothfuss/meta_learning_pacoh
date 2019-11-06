@@ -4,15 +4,13 @@ import time
 import numpy as np
 
 from src.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
-from src.util import _handle_input_dimensionality, get_logger
+from src.abstract import RegressionModel
+from src.util import _handle_input_dimensionality
 
 
+class GPRegressionLearned(RegressionModel):
 
-
-
-class GPRegressionLearned:
-
-    def __init__(self, train_x, train_t, learning_mode='both', lr_params=1e-3, weight_decay=0.0, feature_dim=2,
+    def __init__(self, train_x, train_t, learning_mode='both', lr=1e-3, weight_decay=0.0, feature_dim=2,
                  num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
                  optimizer='Adam', normalize_data=True, lr_scheduler=True, random_seed=None):
         """
@@ -24,7 +22,7 @@ class GPRegressionLearned:
             train_t: (ndarray) train targets - shape: (n_sampls, 1)
             learning_mode: (str) specifying which of the GP prior parameters to optimize. Either one of
                     ['learned_mean', 'learned_kernel', 'both', 'vanilla']
-            lr_params: (float) learning rate for prior parameters
+            lr: (float) learning rate for prior parameters
             weight_decay: (float) weight decay penalty
             feature_dim: (int) output dimensionality of NN feature map for kernel function
             num_iter_fit: (int) number of gradient steps for fitting the parameters
@@ -35,31 +33,17 @@ class GPRegressionLearned:
             optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
             random_seed: (int) seed for pytorch
         """
-        self.logger = get_logger()
+        super().__init__(normalize_data=normalize_data, random_seed=random_seed)
 
         assert learning_mode in ['learn_mean', 'learn_kernel', 'both', 'vanilla']
         assert mean_module in ['NN', 'constant', 'zero'] or isinstance(mean_module, gpytorch.means.Mean)
         assert covar_module in ['NN', 'SE'] or isinstance(covar_module, gpytorch.kernels.Kernel)
         assert optimizer in ['Adam', 'SGD']
 
-        self.lr_params, self.weight_decay, self.num_iter_fit = lr_params, weight_decay, num_iter_fit
-        self.normalize_data, self.lr_scheduler = normalize_data, lr_scheduler
+        self.lr, self.weight_decay, self.num_iter_fit, self.lr_scheduler = lr, weight_decay, num_iter_fit, lr_scheduler
 
-        if random_seed is not None:
-            torch.manual_seed(random_seed)
-
-        """ ------Data handling ------ """
-        # a) Check shape and bring data in 2d-tensor formal
-        train_x, train_t = _handle_input_dimensionality(train_x, train_t)
-        input_dim = train_x.shape[-1]
-
-        # b) normalize data to exhibit zero mean and variance
-        self._compute_normalization_stats(train_x, train_t)
-        train_x_normalized, train_t_normalized = self._normalize_data(train_x, train_t)
-
-        # c) Convert the data into pytorch tensors
-        self.train_x_tensor = torch.from_numpy(train_x_normalized).contiguous().float()
-        self.train_t_tensor = torch.from_numpy(train_t_normalized).contiguous().float().flatten()
+        """ ------ Data handling ------ """
+        self.train_x_tensor, self.train_t_tensor = self.initial_data_handling(train_x, train_t)
 
         """  ------ Setup model ------ """
         self.parameters = []
@@ -68,8 +52,8 @@ class GPRegressionLearned:
 
         if covar_module == 'NN':
             assert learning_mode in ['learn_kernel', 'both'], 'neural network parameters must be learned'
-            nn_kernel_map = NeuralNetwork(input_dim=input_dim, output_dim=feature_dim, layer_sizes=kernel_nn_layers)
-            self.parameters.append({'params': nn_kernel_map.parameters(), 'lr': self.lr_params, 'weight_decay': self.weight_decay})
+            nn_kernel_map = NeuralNetwork(input_dim=self.input_dim, output_dim=feature_dim, layer_sizes=kernel_nn_layers)
+            self.parameters.append({'params': nn_kernel_map.parameters(), 'lr': self.lr, 'weight_decay': self.weight_decay})
             covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=feature_dim))
         else:
             nn_kernel_map = None
@@ -81,8 +65,8 @@ class GPRegressionLearned:
 
         if mean_module == 'NN':
             assert learning_mode in ['learn_mean', 'both'], 'neural network parameters must be learned'
-            nn_mean_fn = NeuralNetwork(input_dim=input_dim, output_dim=1, layer_sizes=mean_nn_layers)
-            self.parameters.append({'params': nn_mean_fn.parameters(), 'lr': self.lr_params, 'weight_decay': self.weight_decay})
+            nn_mean_fn = NeuralNetwork(input_dim=self.input_dim, output_dim=1, layer_sizes=mean_nn_layers)
+            self.parameters.append({'params': nn_mean_fn.parameters(), 'lr': self.lr, 'weight_decay': self.weight_decay})
             mean_module = None
         else:
             nn_mean_fn = None
@@ -95,7 +79,7 @@ class GPRegressionLearned:
         # C) setup GP model
 
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
-        self.parameters.append({'params': self.likelihood.parameters(), 'lr': self.lr_params})
+        self.parameters.append({'params': self.likelihood.parameters(), 'lr': self.lr})
 
         self.model = LearnedGPRegressionModel(self.train_x_tensor, self.train_t_tensor, self.likelihood,
                                               learned_kernel=nn_kernel_map, learned_mean=nn_mean_fn,
@@ -107,10 +91,10 @@ class GPRegressionLearned:
         # D) determine which parameters are trained and setup optimizer
 
         if learning_mode in ["learn_kernel", "both"]:
-            self.parameters.append({'params': self.model.covar_module.hyperparameters(), 'lr': self.lr_params})
+            self.parameters.append({'params': self.model.covar_module.hyperparameters(), 'lr': self.lr})
 
         if learning_mode in ["learn_mean", "both"] and mean_module is not None:
-            self.parameters.append({'params': self.model.mean_module.hyperparameters(), 'lr': self.lr_params})
+            self.parameters.append({'params': self.model.mean_module.hyperparameters(), 'lr': self.lr})
 
         if optimizer == 'Adam':
             self.optimizer = torch.optim.AdamW(self.parameters)
@@ -240,23 +224,3 @@ class GPRegressionLearned:
         self.model.load_state_dict(state_dict['model'])
         self.optimizer.load_state_dict(state_dict['optimizer'])
 
-    def _compute_normalization_stats(self, X, Y):
-        # save mean and variance of data for normalization
-        if self.normalize_data:
-            self.x_mean, self.y_mean = np.mean(X, axis=0), np.mean(Y, axis=0)
-            self.x_std, self.y_std = np.std(X, axis=0), np.std(Y, axis=0)
-        else:
-            self.x_mean, self.y_mean = np.zeros(X.shape[1]), np.zeros(Y.shape[1])
-            self.x_std, self.y_std = np.ones(X.shape[1]), np.ones(Y.shape[1])
-
-    def _normalize_data(self, X, Y=None):
-        assert hasattr(self, "x_mean") and hasattr(self, "x_std"), "requires computing normalization stats beforehand"
-        assert hasattr(self, "y_mean") and hasattr(self, "y_std"), "requires computing normalization stats beforehand"
-
-        X_normalized = (X - self.x_mean) / self.x_std
-
-        if Y is None:
-            return X_normalized
-        else:
-            Y_normalized = (Y - self.y_mean) / self.y_std
-            return X_normalized, Y_normalized
