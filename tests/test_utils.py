@@ -104,3 +104,41 @@ class TestNNVectorized(unittest.TestCase):
 
         assert torch.all(y[0] == torch.zeros((7, 5))).item()
         assert torch.all(y[1] == 3.0 * torch.ones((7, 5))).item()
+
+    def testParamShapes(self):
+        nn = NeuralNetworkVectorized(input_dim=2, output_dim=5, layer_sizes=(3,))
+        shape_dict = nn.parameter_shapes()
+        assert shape_dict['out.bias'] == (5,)
+        assert shape_dict['fc_1.weight'] == (2*3,)
+
+    def test_vectorization1(self):
+        nn = NeuralNetworkVectorized(input_dim=2, output_dim=5, layer_sizes=(6,))
+
+        x = torch.normal(mean=torch.zeros(22, 2))
+        y1 = nn(x)
+
+        params = nn.parameters_as_vector()
+        assert params.shape == (2*6 + 6 + 6*5 + 5, )
+
+        nn.set_parameters_as_vector(params)
+        y2 = nn(x)
+
+        assert torch.sum(torch.abs(y1 - y2)).item() < 0.001
+
+    def test_vectorization2(self):
+        nn = NeuralNetworkVectorized(input_dim=1, output_dim=1, layer_sizes=(3, 6))
+
+        x = torch.normal(mean=torch.zeros(22, 1))
+        y1 = nn(x)
+
+        params = 2 * nn.parameters_as_vector()
+
+        nn.set_parameters_as_vector(params)
+        y2 = nn(x)
+
+        assert torch.sum(torch.abs(y1 - y2)).item() > 0.001
+
+
+
+
+
