@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 from src.util import get_logger, _handle_input_dimensionality
+from config import device
+
 
 class RegressionModel:
 
@@ -65,7 +67,7 @@ class RegressionModel:
         train_x_normalized, train_t_normalized = self._normalize_data(train_x, train_t)
 
         # c) Convert the data into pytorch tensors
-        self.train_x_tensor = torch.from_numpy(train_x_normalized).contiguous().float()
-        self.train_t_tensor = torch.from_numpy(train_t_normalized).contiguous().float()
+        self.train_x_tensor = torch.from_numpy(train_x_normalized).contiguous().float().to(device)
+        self.train_t_tensor = torch.from_numpy(train_t_normalized).contiguous().float().to(device)
 
         return self.train_x_tensor, self.train_t_tensor
