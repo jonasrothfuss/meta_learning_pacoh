@@ -31,13 +31,29 @@ class RegressionModel:
         assert hasattr(self, "x_mean") and hasattr(self, "x_std"), "requires computing normalization stats beforehand"
         assert hasattr(self, "y_mean") and hasattr(self, "y_std"), "requires computing normalization stats beforehand"
 
-        X_normalized = (X - self.x_mean) / self.x_std
+        X_normalized = (X - self.x_mean[None, :]) / self.x_std[None, :]
 
         if Y is None:
             return X_normalized
         else:
-            Y_normalized = (Y - self.y_mean) / self.y_std
+            Y_normalized = (Y - self.y_mean[None, :]) / self.y_std[None, :]
             return X_normalized, Y_normalized
+
+    def _unnormalize_pred(self, pred_mean, pred_std):
+        assert hasattr(self, "x_mean") and hasattr(self, "x_std"), "requires computing normalization stats beforehand"
+        assert hasattr(self, "y_mean") and hasattr(self, "y_std"), "requires computing normalization stats beforehand"
+
+        if self.normalize_data:
+            assert pred_mean.ndim == pred_std.ndim == 2 and pred_mean.shape[1] == pred_std.shape[1] == self.output_dim
+            if isinstance(pred_mean, torch.Tensor) and isinstance(pred_std, torch.Tensor):
+                y_mean_tensor, y_std_tensor = torch.tensor(self.y_mean).float(), torch.tensor(self.y_std).float()
+                pred_mean = pred_mean.mul(y_std_tensor[None, :]) + y_mean_tensor[None, :]
+                pred_std = pred_std.mul(y_std_tensor[None, :])
+            else:
+                pred_mean = pred_mean.multiply(self.y_std[None, :]) + self.y_mean[None, :]
+                pred_std = pred_std.multiply(self.y_std[None, :])
+
+        return pred_mean, pred_std
 
     def initial_data_handling(self, train_x, train_t):
         train_x, train_t = _handle_input_dimensionality(train_x, train_t)
@@ -50,6 +66,6 @@ class RegressionModel:
 
         # c) Convert the data into pytorch tensors
         self.train_x_tensor = torch.from_numpy(train_x_normalized).contiguous().float()
-        self.train_t_tensor = torch.from_numpy(train_t_normalized).contiguous().float().flatten()
+        self.train_t_tensor = torch.from_numpy(train_t_normalized).contiguous().float()
 
         return self.train_x_tensor, self.train_t_tensor

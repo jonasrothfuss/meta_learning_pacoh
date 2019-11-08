@@ -28,8 +28,8 @@ class AffineTransformedDistribution(TransformedDistribution):
     def __init__(self, base_dist, normalization_mean, normalization_std):
         self.loc_tensor = torch.tensor(normalization_mean).float().reshape((1,))
         self.scale_tensor = torch.tensor(normalization_std).float().reshape((1,))
-        normalization_tranform = AffineTransform(loc=self.loc_tensor, scale=self.scale_tensor)
-        super().__init__(base_dist, normalization_tranform)
+        normalization_transform = AffineTransform(loc=self.loc_tensor, scale=self.scale_tensor)
+        super().__init__(base_dist, normalization_transform)
 
     @property
     def mean(self):
@@ -150,49 +150,18 @@ class NeuralNetwork(torch.nn.Sequential):
 import torch.nn as nn
 import torch.nn.functional as F
 
-class LinearVectorized:
-    def __init__(self, size_in, size_out):
-        self.size_in = size_in
-        self.size_out = size_out
 
-        self.weight = torch.normal(0, 1, size=(size_in * size_out,), requires_grad=True)
-        self.bias = torch.zeros(size_out, requires_grad=True)
+class VectorizedModel:
 
-        self.reset_parameters()
+    def __init__(self, input_dim, output_dim):
+        self.input_dim = input_dim
+        self.output_dim = output_dim
 
-    def reset_parameters(self):
-        self.weight = _kaiming_uniform_batched(self.weight, fan=self.size_in, a=math.sqrt(5), nonlinearity='tanh')
-        if self.bias is not None:
-            fan_in = self.size_out
-            bound = 1 / math.sqrt(fan_in)
-            nn.init.uniform_(self.bias, -bound, bound)
+    def parameter_shapes(self):
+        raise NotImplementedError
 
-    def forward(self, x):
-        if self.weight.ndim == 2 or self.weight.ndim == 3:
-            model_batch_size = self.weight.shape[0]
-            # batched computation
-            if self.weight.ndim == 3:
-                assert self.weight.shape[-2] == 1 and self.bias.shape[-2] == 1
-
-            W = self.weight.view(model_batch_size, self.size_out, self.size_in)
-            b = self.bias.view(model_batch_size, self.size_out)
-
-            if x.ndim == 2:
-                # introduce new dimension 0
-                x = torch.reshape(x, (1, x.shape[0], x.shape[1]))
-                # tile dimension 0 to model_batch size
-                x = x.repeat(model_batch_size, 1, 1)
-            else:
-                assert x.ndim == 3 and x.shape[0] == model_batch_size
-            # out dimensions correspond to [nn_batch_size, data_batch_size, out_features)
-            return torch.bmm(x, W.permute(0, 2, 1)) + b[:, None, :]
-        elif self.weight.ndim == 1:
-            return F.linear(x, self.weight.view(self.size_out, self.size_in), self.bias)
-        else:
-            raise NotImplementedError
-
-    def named_parameters(self):
-        return {'weight': self.weight, 'bias': self.bias}
+    def names_parameters(self):
+        raise NotImplementedError
 
     def parameters(self):
         return list(self.named_parameters().values())
@@ -204,13 +173,81 @@ class LinearVectorized:
             remaining_name = ".".join(name.split('.')[1:])
             getattr(self, name.split('.')[0]).set_parameter(remaining_name, value)
 
+    def set_parameters(self, param_dict):
+        for name, value in param_dict.items():
+            self.set_parameter(name, value)
+
+    def parameters_as_vector(self):
+        return torch.cat(self.parameters(), dim=-1)
+
+    def set_parameters_as_vector(self, value):
+        idx = 0
+        for name, shape in self.parameter_shapes().items():
+            idx_next = idx + shape[-1]
+            if value.ndim == 1:
+                self.set_parameter(name, value[idx:idx_next])
+            elif value.ndim == 2:
+                self.set_parameter(name, value[:, idx:idx_next])
+            else:
+                raise AssertionError
+            idx = idx_next
+        assert idx_next == value.shape[-1]
+
+class LinearVectorized(VectorizedModel):
+    def __init__(self, input_dim, output_dim):
+        super().__init__(input_dim, output_dim)
+
+        self.weight = torch.normal(0, 1, size=(input_dim * output_dim,), requires_grad=True)
+        self.bias = torch.zeros(output_dim, requires_grad=True)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.weight = _kaiming_uniform_batched(self.weight, fan=self.input_dim, a=math.sqrt(5), nonlinearity='tanh')
+        if self.bias is not None:
+            fan_in = self.output_dim
+            bound = 1 / math.sqrt(fan_in)
+            nn.init.uniform_(self.bias, -bound, bound)
+
+    def forward(self, x):
+        if self.weight.ndim == 2 or self.weight.ndim == 3:
+            model_batch_size = self.weight.shape[0]
+            # batched computation
+            if self.weight.ndim == 3:
+                assert self.weight.shape[-2] == 1 and self.bias.shape[-2] == 1
+
+            W = self.weight.view(model_batch_size, self.output_dim, self.input_dim)
+            b = self.bias.view(model_batch_size, self.output_dim)
+
+            if x.ndim == 2:
+                # introduce new dimension 0
+                x = torch.reshape(x, (1, x.shape[0], x.shape[1]))
+                # tile dimension 0 to model_batch size
+                x = x.repeat(model_batch_size, 1, 1)
+            else:
+                assert x.ndim == 3 and x.shape[0] == model_batch_size
+            # out dimensions correspond to [nn_batch_size, data_batch_size, out_features)
+            return torch.bmm(x, W.permute(0, 2, 1)) + b[:, None, :]
+        elif self.weight.ndim == 1:
+            return F.linear(x, self.weight.view(self.output_dim, self.input_dim), self.bias)
+        else:
+            raise NotImplementedError
+
+    def parameter_shapes(self):
+        return OrderedDict(bias=self.bias.shape, weight=self.weight.shape)
+
+    def named_parameters(self):
+        return OrderedDict(bias=self.bias, weight=self.weight)
+
     def __call__(self, *args, **kwargs):
         return self.forward( *args, **kwargs)
 
-class NeuralNetworkVectorized:
+class NeuralNetworkVectorized(VectorizedModel):
     """Trainable neural network that batches multiple sets of parameters. That is, each
     """
-    def __init__(self, input_dim=2, output_dim=2, layer_sizes=(64, 64), nonlinearlity=torch.tanh):
+    def __init__(self, input_dim, output_dim, layer_sizes=(64, 64), nonlinearlity=torch.tanh):
+        super().__init__(input_dim, output_dim)
+
         self.nonlinearlity = nonlinearlity
         self.n_layers = len(layer_sizes)
 
@@ -228,6 +265,22 @@ class NeuralNetworkVectorized:
         output = getattr(self, 'out')(output)
         return output
 
+    def parameter_shapes(self):
+        param_dict = OrderedDict()
+
+        # hidden layers
+        for i in range(1, self.n_layers + 1):
+            layer_name = 'fc_%i' % i
+            for name, param in getattr(self, layer_name).parameter_shapes().items():
+                param_dict[layer_name + '.' + name] = param
+
+        # last layer
+        layer_name = 'out'
+        for name, param in getattr(self, layer_name).parameter_shapes().items():
+            param_dict[layer_name + '.' + name] = param
+
+        return param_dict
+
     def named_parameters(self):
         param_dict = OrderedDict()
 
@@ -243,16 +296,6 @@ class NeuralNetworkVectorized:
             param_dict[layer_name + '.' + name] = param
 
         return param_dict
-
-    def parameters(self):
-        return list(self.named_parameters().values())
-
-    def set_parameter(self, name, value):
-        if len(name.split('.')) == 1:
-            setattr(self, name, value)
-        else:
-            remaining_name = ".".join(name.split('.')[1:])
-            getattr(self, name.split('.')[0]).set_parameter(remaining_name, value)
 
     def __call__(self, *args, **kwargs):
         return self.forward( *args, **kwargs)
@@ -346,47 +389,6 @@ class LearnedGPRegressionModel(gpytorch.models.ExactGP):
             mean_x = self.learned_mean(x).squeeze()
         else:
             mean_x = self.mean_module(projected_x).squeeze()
-
-        covar_x = self.covar_module(projected_x)
-        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
-
-
-
-# TODO: merge functionality in an abstract base class
-class LearnedGPClassificationModel(gpytorch.models.AbstractVariationalGP):
-
-    def __init__(self, train_x, learned_kernel=None, learned_mean=None, mean_module=None, covar_module=None,
-                 feature_dim=2):
-
-        variational_distribution = CholeskyVariationalDistribution(train_x.size(0))
-        variational_strategy = VariationalStrategy(self, train_x, variational_distribution)
-        super(LearnedGPClassificationModel, self).__init__(variational_strategy)
-
-        if mean_module is None:
-            self.mean_module = gpytorch.means.ZeroMean()
-        else:
-            self.mean_module = mean_module
-
-        if covar_module is None:
-            self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=feature_dim))
-        else:
-            self.covar_module = covar_module
-
-        self.learned_kernel = learned_kernel
-        self.learned_mean = learned_mean
-
-    def forward(self, x):
-        # feed through kernel NN
-        if self.learned_kernel is not None:
-            projected_x = self.learned_kernel(x)
-        else:
-            projected_x = x
-
-        # feed through mean NN
-        if self.learned_mean is not None:
-            mean_x = self.learned_mean(x).squeeze()
-        else:
-            mean_x = self.mean_module(projected_x)
 
         covar_x = self.covar_module(projected_x)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
