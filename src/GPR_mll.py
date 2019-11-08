@@ -44,6 +44,8 @@ class GPRegressionLearned(RegressionModel):
 
         """ ------ Data handling ------ """
         self.train_x_tensor, self.train_t_tensor = self.initial_data_handling(train_x, train_t)
+        assert self.train_t_tensor.shape[-1] == 1
+        self.train_t_tensor = self.train_t_tensor.flatten()
 
         """  ------ Setup model ------ """
         self.parameters = []
@@ -176,6 +178,9 @@ class GPRegressionLearned(RegressionModel):
         Returns:
             (pred_mean, pred_std) predicted mean and standard deviation corresponding to p(y_test|X_test, X_train, y_train)
         """
+        if test_x.ndim == 1:
+            test_x = np.expand_dims(test_x, axis=-1)
+
         with torch.no_grad():
             test_x_normalized = self._normalize_data(test_x)
             test_x_tensor = torch.from_numpy(test_x_normalized).contiguous().float()
