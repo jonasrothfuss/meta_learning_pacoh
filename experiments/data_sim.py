@@ -319,7 +319,7 @@ class GPFunctionsDataset(MetaDataset):
         K_ss = kernel(X, X, self.lengthscale)
         L = np.linalg.cholesky(K_ss + 1e-8 * np.eye(n))
         f = self.mean + np.dot(L, self.random_state.normal(size=(n, 1)))
-        y = f + np.random.normal(scale=self.noise_std, size=f.shape)
+        y = f + self.random_state.normal(scale=self.noise_std, size=f.shape)
         return y
 
 
