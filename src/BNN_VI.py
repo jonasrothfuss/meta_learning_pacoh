@@ -9,13 +9,14 @@ from src.abstract import RegressionModel
 from pyro.distributions import Normal, Uniform
 from pyro.infer import SVI, Trace_ELBO
 import torch.nn.functional as F
+from config import device
 
 
 
 class BayesianNeuralNetworkVI(RegressionModel):
 
     def __init__(self, train_x, train_t, lr=1e-3, layer_sizes=(32, 32), epochs=20000, batch_size=64,
-                 num_svi_samples=100, optimizer='Adam', normalize_data=True,
+                 num_svi_samples=1, optimizer='Adam', normalize_data=True,
                  likelihood_std=0.1, weight_prior_std=1.0, random_seed=None):
         """
         Bayesian Neural Network with fully-factorized Gaussian Variational Distribution
@@ -50,16 +51,18 @@ class BayesianNeuralNetworkVI(RegressionModel):
 
         # setup neural network
         nn_prefix = str(self.__hash__())[-6:] + '_'
-        self.net = NeuralNetwork(input_dim=self.input_dim, output_dim=self.output_dim, layer_sizes=layer_sizes, prefix=nn_prefix)
+        self.net = NeuralNetwork(input_dim=self.input_dim, output_dim=self.output_dim, layer_sizes=layer_sizes, prefix=nn_prefix).to(device)
 
         # setup probabilistic model -> prior * likelihood
         def model(x_data, y_data):
             priors = {}
             for name, param in self.net.named_parameters():
                 if 'bias' in name:
-                    priors[name] = Normal(loc=torch.zeros_like(param), scale=1000 * torch.ones_like(param)).to_event(1)
+                    priors[name] = Normal(loc=torch.zeros_like(param).to(device),
+                                          scale=1000 * torch.ones_like(param).to(device)).to_event(1)
                 if 'weight' in name:
-                    priors[name] = Normal(loc=torch.zeros_like(param), scale=weight_prior_std * torch.ones_like(param)).to_event(2)
+                    priors[name] = Normal(loc=torch.zeros_like(param).to(device),
+                                          scale=weight_prior_std * torch.ones_like(param).to(device)).to_event(2)
 
             # lift module parameters to random variables sampled from the priors
             lifted_module = pyro.random_module("module", self.net, priors)
@@ -71,7 +74,7 @@ class BayesianNeuralNetworkVI(RegressionModel):
                 # run the nn forward on data
                 prediction_mean = lifted_reg_model(x_data)
                 # condition on the observed data
-                pyro.sample("obs", Normal(prediction_mean, self.likelihood_std), obs=y_data)
+                pyro.sample("obs", Normal(prediction_mean, torch.tensor(self.likelihood_std).to(device)), obs=y_data)
 
             return prediction_mean
 
@@ -98,7 +101,7 @@ class BayesianNeuralNetworkVI(RegressionModel):
         else:
             raise NotImplementedError('Optimizer must be Adam or SGD')
 
-        self.svi = SVI(model, guide, self.optimizer, num_samples=num_svi_samples, loss=Trace_ELBO())
+        self.svi = SVI(model, guide, self.optimizer, loss=Trace_ELBO(num_particles=num_svi_samples))
 
         self.fitted = False
 
@@ -150,7 +153,7 @@ class BayesianNeuralNetworkVI(RegressionModel):
 
         with torch.no_grad():
             test_x_normalized = self._normalize_data(test_x)
-            test_x_tensor = torch.from_numpy(test_x_normalized).contiguous().float()
+            test_x_tensor = torch.from_numpy(test_x_normalized).contiguous().float().to(device)
 
             sampled_models = [self.guide(None, None) for _ in range(n_posterior_samples)]
 
@@ -163,8 +166,8 @@ class BayesianNeuralNetworkVI(RegressionModel):
                 if return_density:
                     return pred_dist
                 else:
-                    pred_mean = pred_dist.mean.numpy()
-                    pred_std = pred_dist.stddev.numpy()
+                    pred_mean = pred_dist.mean.cpu().numpy()
+                    pred_std = pred_dist.stddev.cpu().numpy()
                     return pred_mean, pred_std
 
             elif mode == 'pred':
@@ -172,7 +175,7 @@ class BayesianNeuralNetworkVI(RegressionModel):
                 mean, std = torch.mean(preds, dim=0), torch.std(preds, dim=0)
                 mean, std = self._unnormalize_pred(mean, std)
 
-                return mean.numpy(), std.numpy()
+                return mean.cpu().numpy(), std.cpu().numpy()
 
             else:
                 raise NotImplementedError
@@ -192,7 +195,7 @@ class BayesianNeuralNetworkVI(RegressionModel):
 
         # convert to tensors
         test_x, test_t = _handle_input_dimensionality(test_x, test_t)
-        test_t_tensor = torch.from_numpy(test_t).contiguous().float()
+        test_t_tensor = torch.from_numpy(test_t).contiguous().float().to(device)
 
         with torch.no_grad():
             pred_dist = self.predict(test_x, n_posterior_samples=n_posterior_samples, return_density=True)
@@ -236,9 +239,9 @@ if __name__ == "__main__":
         """ Train BNN """
         bnn = BayesianNeuralNetworkVI(x_data_train, y_data_train, layer_sizes=(16, 16),
                                     weight_prior_std=1.0,  lr=0.01, batch_size=20, epochs=8000, normalize_data=norm_data,
-                                    random_seed=22)
+                                    random_seed=22, num_svi_samples=5)
 
-        bnn.fit(x_data_train, y_data_train, log_period=1000)
+        bnn.fit(x_data_train, y_data_train, log_period=200)
 
         x_plot = np.expand_dims(np.linspace(-10, 5, num=100), axis=-1)
         y_pred_mean, y_pred_std = bnn.predict(x_plot)

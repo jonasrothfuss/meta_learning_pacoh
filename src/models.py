@@ -2,9 +2,8 @@ import torch
 import gpytorch
 import math
 from collections import OrderedDict
+from config import device
 
-from gpytorch.variational import CholeskyVariationalDistribution
-from gpytorch.variational import VariationalStrategy
 
 """ ----------------------------------------------------"""
 """ ------------ Probability Distributions ------------ """
@@ -26,8 +25,8 @@ class AffineTransformedDistribution(TransformedDistribution):
     """
 
     def __init__(self, base_dist, normalization_mean, normalization_std):
-        self.loc_tensor = torch.tensor(normalization_mean).float().reshape((1,))
-        self.scale_tensor = torch.tensor(normalization_std).float().reshape((1,))
+        self.loc_tensor = torch.tensor(normalization_mean).float().reshape((1,)).to(device)
+        self.scale_tensor = torch.tensor(normalization_std).float().reshape((1,)).to(device)
         normalization_transform = AffineTransform(loc=self.loc_tensor, scale=self.scale_tensor)
         super().__init__(base_dist, normalization_transform)
 

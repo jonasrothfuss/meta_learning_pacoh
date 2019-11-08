@@ -6,6 +6,7 @@ import numpy as np
 from src.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
 from src.abstract import RegressionModel
 from src.util import _handle_input_dimensionality
+from config import device
 
 
 class GPRegressionLearned(RegressionModel):
@@ -54,40 +55,40 @@ class GPRegressionLearned(RegressionModel):
 
         if covar_module == 'NN':
             assert learning_mode in ['learn_kernel', 'both'], 'neural network parameters must be learned'
-            nn_kernel_map = NeuralNetwork(input_dim=self.input_dim, output_dim=feature_dim, layer_sizes=kernel_nn_layers)
+            nn_kernel_map = NeuralNetwork(input_dim=self.input_dim, output_dim=feature_dim, layer_sizes=kernel_nn_layers).to(device)
             self.parameters.append({'params': nn_kernel_map.parameters(), 'lr': self.lr, 'weight_decay': self.weight_decay})
-            covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=feature_dim))
+            covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=feature_dim)).to(device)
         else:
             nn_kernel_map = None
 
         if covar_module == 'SE':
-            covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=feature_dim))
+            covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=feature_dim)).to(device)
 
         # B) determine mean map & module
 
         if mean_module == 'NN':
             assert learning_mode in ['learn_mean', 'both'], 'neural network parameters must be learned'
-            nn_mean_fn = NeuralNetwork(input_dim=self.input_dim, output_dim=1, layer_sizes=mean_nn_layers)
+            nn_mean_fn = NeuralNetwork(input_dim=self.input_dim, output_dim=1, layer_sizes=mean_nn_layers).to(device)
             self.parameters.append({'params': nn_mean_fn.parameters(), 'lr': self.lr, 'weight_decay': self.weight_decay})
             mean_module = None
         else:
             nn_mean_fn = None
 
         if mean_module == 'constant':
-            mean_module = gpytorch.means.ConstantMean()
+            mean_module = gpytorch.means.ConstantMean().to(device)
         elif mean_module == 'zero':
-            mean_module = gpytorch.means.ZeroMean()
+            mean_module = gpytorch.means.ZeroMean().to(device)
 
         # C) setup GP model
 
-        self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
+        self.likelihood = gpytorch.likelihoods.GaussianLikelihood().to(device)
         self.parameters.append({'params': self.likelihood.parameters(), 'lr': self.lr})
 
         self.model = LearnedGPRegressionModel(self.train_x_tensor, self.train_t_tensor, self.likelihood,
                                               learned_kernel=nn_kernel_map, learned_mean=nn_mean_fn,
                                               covar_module=covar_module, mean_module=mean_module)
 
-        self.mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.model)
+        self.mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.model).to(device)
 
 
         # D) determine which parameters are trained and setup optimizer
@@ -183,7 +184,7 @@ class GPRegressionLearned(RegressionModel):
 
         with torch.no_grad():
             test_x_normalized = self._normalize_data(test_x)
-            test_x_tensor = torch.from_numpy(test_x_normalized).contiguous().float()
+            test_x_tensor = torch.from_numpy(test_x_normalized).contiguous().float().to(device)
 
             pred_dist = self.likelihood(self.model(test_x_tensor))
             pred_dist_transformed = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
@@ -191,8 +192,8 @@ class GPRegressionLearned(RegressionModel):
             if return_density:
                 return pred_dist_transformed
             else:
-                pred_mean = pred_dist_transformed.mean.numpy()
-                pred_std = pred_dist_transformed.stddev.numpy()
+                pred_mean = pred_dist_transformed.mean.cpu().numpy()
+                pred_std = pred_dist_transformed.stddev.cpu().numpy()
                 return pred_mean, pred_std
 
 
@@ -209,14 +210,14 @@ class GPRegressionLearned(RegressionModel):
         """
         # convert to tensors
         test_x, test_t = _handle_input_dimensionality(test_x, test_t)
-        test_t_tensor = torch.from_numpy(test_t).contiguous().float().flatten()
+        test_t_tensor = torch.from_numpy(test_t).contiguous().float().flatten().to(device)
 
         with torch.no_grad():
             pred_dist = self.predict(test_x, return_density=True)
             avg_log_likelihood = pred_dist.log_prob(test_t_tensor) / test_t_tensor.shape[0]
             rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt()
 
-            return avg_log_likelihood.item(), rmse.item()
+            return avg_log_likelihood.cpu().item(), rmse.cpu().item()
 
     def state_dict(self):
         state_dict = {
@@ -229,3 +230,25 @@ class GPRegressionLearned(RegressionModel):
         self.model.load_state_dict(state_dict['model'])
         self.optimizer.load_state_dict(state_dict['optimizer'])
 
+
+if __name__ == "__main__":
+    import torch
+    import numpy as np
+    from matplotlib import pyplot as plt
+
+    n_train_samples = 200
+    n_test_samples = 200
+
+    torch.manual_seed(23)
+    x_data = torch.normal(mean=-1, std=2.0, size=(n_train_samples + n_test_samples, 1))
+    W = torch.tensor([[0.6]])
+    b = torch.tensor([-1])
+    y_data = x_data.matmul(W.T) + torch.sin((0.6 * x_data)**2) + b + torch.normal(mean=0.0, std=0.1, size=(n_train_samples + n_test_samples, 1))
+
+    x_data_train, x_data_test = x_data[:n_train_samples].numpy(), x_data[n_train_samples:].numpy()
+    y_data_train, y_data_test = y_data[:n_train_samples].numpy(), y_data[n_train_samples:].numpy()
+
+    plt.scatter(x_data_train, y_data_train)
+    plt.show()
+
+    gp_mll = GPRegressionLearned(x_data_train, y_data_train, num_iter_fit=5000)

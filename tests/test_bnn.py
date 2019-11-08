@@ -33,7 +33,7 @@ class TestBNNVI(unittest.TestCase):
         self.assertTrue(np.array_equal(t_predict_1, t_predict_2))
 
     def test_basic_fit_eval(self):
-        bnn = BayesianNeuralNetworkVI(self.x_train, self.y_train, epochs=5000, layer_sizes=(16, 16), num_svi_samples=50,
+        bnn = BayesianNeuralNetworkVI(self.x_train, self.y_train, epochs=5000, layer_sizes=(16, 16), num_svi_samples=1,
                                       weight_prior_std=2.0, lr=1e-2, random_seed=25, likelihood_std=0.2)
 
         bnn.fit(valid_x=self.x_train, valid_t=self.y_train, log_period=2000)

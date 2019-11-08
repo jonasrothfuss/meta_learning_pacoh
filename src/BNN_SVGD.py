@@ -9,6 +9,7 @@ from src.svgd import SVGD, RBF_Kernel, IMQSteinKernel
 from src.util import _handle_input_dimensionality
 from src.abstract import RegressionModel
 from src.models import NeuralNetworkVectorized, EqualWeightedMixtureDist, AffineTransformedDistribution
+from config import device
 
 class ProbabilisticNN:
 
@@ -34,10 +35,10 @@ class ProbabilisticNN:
                 raise NotImplementedError
         prior_stds = torch.cat(prior_stds, dim=-1)
         assert prior_stds.ndim == 1
-        self.prior = Normal(torch.zeros(prior_stds.shape), prior_stds).to_event(1)
+        self.prior = Normal(torch.zeros(prior_stds.shape).to(device), prior_stds.to(device)).to_event(1)
 
         # Likelihood Distribution
-        self.likelihood_dist = Normal(torch.zeros(size_out), likelihood_std * torch.ones(size_out)).to_event(1)
+        self.likelihood_dist = Normal(torch.zeros(size_out).to(device), likelihood_std * torch.ones(size_out).to(device)).to_event(1)
 
     @property
     def event_shape(self):
@@ -182,7 +183,7 @@ class BayesianNeuralNetworkSVGD(RegressionModel):
 
         with torch.no_grad():
             test_x_normalized = self._normalize_data(test_x)
-            test_x_tensor = torch.from_numpy(test_x_normalized).contiguous().float()
+            test_x_tensor = torch.from_numpy(test_x_normalized).contiguous().float().to(device)
 
             pred_fn = self.posterior_dist.get_forward_fn(self.particles)
             preds = pred_fn(test_x_tensor)
@@ -190,19 +191,20 @@ class BayesianNeuralNetworkSVGD(RegressionModel):
             if mode == 'prob':
                 pred_dists = [Normal(preds[i], self.likelihood_std).to_event(1) for i in range(preds.shape[0])]
                 pred_dist = EqualWeightedMixtureDist(pred_dists)
-                pred_dist = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
-                                                                normalization_std=self.y_std)
+                pred_dist = AffineTransformedDistribution(pred_dist,
+                                                          normalization_mean=self.y_mean,
+                                                          normalization_std=self.y_std)
                 if return_density:
                     return pred_dist
                 else:
-                    pred_mean = pred_dist.mean.numpy()
-                    pred_std = pred_dist.stddev.numpy()
+                    pred_mean = pred_dist.mean.cpu().numpy()
+                    pred_std = pred_dist.stddev.cpu().numpy()
                     return pred_mean, pred_std
 
             elif mode == 'pred':
                 pred_mean, pred_std = torch.mean(preds, dim=0), torch.std(preds, dim=0)
                 pred_mean, pred_std = self._unnormalize_pred(pred_mean, pred_mean)
-                return pred_mean.numpy(), pred_mean.numpy()
+                return pred_mean.cpu().numpy(), pred_mean.cpu().numpy()
             else:
                 raise NotImplementedError
 
@@ -220,7 +222,7 @@ class BayesianNeuralNetworkSVGD(RegressionModel):
 
         # convert to tensors
         test_x, test_t = _handle_input_dimensionality(test_x, test_t)
-        test_t_tensor = torch.from_numpy(test_t).contiguous().float()
+        test_t_tensor = torch.from_numpy(test_t).contiguous().float().to(device)
 
         with torch.no_grad():
             pred_dist = self.predict(test_x, return_density=True)
@@ -263,7 +265,7 @@ if __name__ == "__main__":
             y_data_train, y_data_test = y_data[:n_train_samples].numpy(), y_data[n_train_samples:].numpy()
 
         """ Train BNN """
-        bnn = BayesianNeuralNetworkSVGD(x_data_train, y_data_train, bandwidth=1.0, num_particles=50, layer_sizes=(32, 64, 32),
+        bnn = BayesianNeuralNetworkSVGD(x_data_train, y_data_train, bandwidth=1.0, num_particles=100, layer_sizes=(32, 64, 32),
                                         weight_prior_std=1.0, lr=0.01, batch_size=10, epochs=5000, normalize_data=norm_data,
                                         random_seed=22, likelihood_std=0.1)
         bnn.fit(x_data_train, y_data_train)
