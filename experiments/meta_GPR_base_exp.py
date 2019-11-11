@@ -20,15 +20,15 @@ flags.DEFINE_string('exp_name', default='meta-GPR-base-exp',
                     help='name of the folder in which to dump logs and results')
 
 flags.DEFINE_integer('seed', default=28, help='random seed')
-flags.DEFINE_integer('n_threads', default=8, help='number of threads')
+flags.DEFINE_integer('n_threads', default=4, help='number of threads')
 
 # Configuration for GP-Prior learning
 flags.DEFINE_float('weight_decay', default=0.0, help='weight decay for meta-learning the prior')
 flags.DEFINE_integer("n_iter_fit", default=100000, help='number of gradient steps')
 flags.DEFINE_string('learning_mode', default='both', help='specifies what to use as mean function of the GP prior')
-flags.DEFINE_string('mean_module', default='NN', help='specifies what to use as mean function of the GP prior')
-flags.DEFINE_string('covar_module', default='NN', help='specifies what to use as kernel function of the GP prior')
-flags.DEFINE_integer('num_layers', default=5, help='number of neural network layers for GP-prior NNs')
+flags.DEFINE_string('mean_module', default='constant', help='specifies what to use as mean function of the GP prior')
+flags.DEFINE_string('covar_module', default='SE', help='specifies what to use as kernel function of the GP prior')
+flags.DEFINE_integer('num_layers', default=3, help='number of neural network layers for GP-prior NNs')
 flags.DEFINE_integer('layer_size', default=128, help='number of neural network layers for GP-prior NNs')
 flags.DEFINE_float('lr', default=1e-3, help='learning rate for AdamW optimizer')
 flags.DEFINE_integer('batch_size', 20, help='batch size for meta training, i.e. number of tasks for computing grads')
@@ -36,7 +36,7 @@ flags.DEFINE_string('optimizer', default='Adam', help='type of optimizer to use 
 
 # Configuration w.r.t. data
 flags.DEFINE_boolean('normalize_data', default=True, help='whether to normalize the data')
-flags.DEFINE_string('dataset', default='sin-nonstat', help='meta learning dataset')
+flags.DEFINE_string('dataset', default='gp-funcs', help='meta learning dataset')
 flags.DEFINE_integer('n_train_tasks', default=10, help='number of train tasks')
 flags.DEFINE_integer('n_train_samples', default=20, help='number of train samples per task')
 
@@ -95,6 +95,7 @@ def main(argv):
         'test_ll': test_ll,
         'test_rmse': rmse
     }
+    print(results_dict)
     save_results(results_dict, exp_dir, log=True)
 
 if __name__ == '__main__':

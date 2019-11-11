@@ -90,7 +90,7 @@ def main(argv):
                                         normalize_data=FLAGS.normalize_data,
                                       )
 
-    gp_meta.meta_fit(valid_tuples=data_test[:100], log_period=100)
+    gp_meta.meta_fit(valid_tuples=data_test[:100], log_period=1000)
 
     test_ll_bayes, rmse_bayes = gp_meta.eval_datasets(data_test, mode='Bayes')
     test_ll_map, rmse_map = gp_meta.eval_datasets(data_test, mode='MAP')
