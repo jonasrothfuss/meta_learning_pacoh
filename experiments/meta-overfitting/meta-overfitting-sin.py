@@ -20,7 +20,7 @@ exp_config = {
     'weight_decay': [5e-1, 1e-1, 5e-2, 1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 0.0],
     'covar_module': ['NN'],
     'mean_module': ['NN'],
-    'num_layers': [5],
+    'num_layers': [1, 3],
     'layer_size': [128],
     'n_iter_fit': [50000],
     'n_train_tasks': [2, 5, 10, 20],
@@ -38,7 +38,7 @@ if cluster :
         cmd_hash = hashlib.md5(str.encode(python_cmd)).hexdigest()
 
         bsub_cmd = 'bsub -oo /cluster/project/infk/krause/rojonas/stdout/gp-priors/meta-overfitting/%s.out' \
-                   ' -W 12:00'\
+                   ' -W 11:00'\
                    ' -R "rusage[mem=1048]"' \
                    ' -n %i '% (cmd_hash, N_THREADS)
         cluster_cmds.append(bsub_cmd + ' ' + python_cmd)
