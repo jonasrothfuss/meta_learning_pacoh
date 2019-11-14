@@ -226,7 +226,7 @@ class SinusoidMetaDataset(MetaDataset):
             f = self._sample_sinusoid()
             X = self.random_state.uniform(self.x_low, self.x_high, size=(n_samples_context + n_samples_test, 1))
             Y = f(X)
-            meta_test_tuples.append((X[n_samples_context:], Y[n_samples_context:], X[:n_samples_context], Y[:n_samples_context]))
+            meta_test_tuples.append((X[:n_samples_context], Y[:n_samples_context], X[n_samples_context:], Y[n_samples_context:]))
 
         return meta_test_tuples
 
@@ -262,7 +262,7 @@ class SinusoidNonstationaryDataset(MetaDataset):
             f = self._sample_fun()
             X = self.random_state.uniform(self.x_low, self.x_high, size=(n_samples_context + n_samples_test, 1))
             Y = f(X)
-            meta_test_tuples.append((X[n_samples_context:], Y[n_samples_context:], X[:n_samples_context], Y[:n_samples_context]))
+            meta_test_tuples.append((X[:n_samples_context], Y[:n_samples_context], X[n_samples_context:], Y[n_samples_context:]))
 
         return meta_test_tuples
 
@@ -295,7 +295,7 @@ class GPFunctionsDataset(MetaDataset):
             X = self.random_state.uniform(self.x_low, self.x_high, size=(n_samples_context + n_samples_test, 1))
             Y = self._gp_fun_from_prior(X)
             meta_test_tuples.append(
-                (X[n_samples_context:], Y[n_samples_context:], X[:n_samples_context], Y[:n_samples_context]))
+                (X[:n_samples_context], Y[:n_samples_context], X[n_samples_context:], Y[n_samples_context:]))
 
         return meta_test_tuples
 
