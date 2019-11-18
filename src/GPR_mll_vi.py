@@ -5,21 +5,21 @@ import numpy as np
 
 import torch.nn.functional as F
 
-from src.models import LearnedGPRegressionModel, NeuralNetwork, UnnormalizedExpDist, AffineTransformedDistribution, \
-    SEKernelLight, ConstantMeanLight, EqualWeightedMixtureDist
-from src.util import _handle_input_dimensionality, get_logger
+from src.models import AffineTransformedDistribution, EqualWeightedMixtureDist
+from src.random_gp import RandomGP, RandomGPPosterior
+from src.util import _handle_input_dimensionality
 
-import pyro
-from pyro.distributions import Normal, InverseGamma, Delta, Gamma, LogNormal
-from pyro.infer import SVI, Trace_ELBO
+
+
+from torch.distributions.multivariate_normal import MultivariateNormal
 from src.abstract import RegressionModel
 from config import device
 
 class GPRegressionLearnedVI(RegressionModel):
 
-    def __init__(self, train_x, train_t, lr_params=1e-3, num_iter_fit=10000, prior_factor=0.01, feature_dim=2,
+    def __init__(self, train_x, train_t, lr=1e-3, num_iter_fit=10000, prior_factor=0.01, feature_dim=1,
                  covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 optimizer='Adam', svi_batch_size=1, normalize_data=True, random_seed=None):
+                 optimizer='Adam', svi_batch_size=10, normalize_data=True, random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -27,48 +27,46 @@ class GPRegressionLearnedVI(RegressionModel):
         Args:
             train_x: (ndarray) train inputs - shape: (n_sampls, ndim_x)
             train_t: (ndarray) train targets - shape: (n_sampls, 1)
-            learning_mode: (str) specifying which of the GP prior parameters to optimize. Either one of
-                    ['learned_mean', 'learned_kernel', 'both', 'vanilla']
-            lr_params: (float) learning rate for prior parameters
-            weight_decay: (float) weight decay penalty
-            feature_dim: (int) output dimensionality of NN feature map for kernel function
+            lr: (float) learning rate for prior parameters
             num_iter_fit: (int) number of gradient steps for fitting the parameters
+            prior_factor: (float) weighting of the hyper-prior (--> meta-regularization parameter)
+            feature_dim: (int) output dimensionality of NN feature map for kernel function
             covar_module: (gpytorch.mean.Kernel) optional kernel module, default: RBF kernel
             mean_module: (gpytorch.mean.Mean) optional mean module, default: ZeroMean
             mean_nn_layers: (tuple) hidden layer sizes of mean NN
             kernel_nn_layers: (tuple) hidden layer sizes of kernel NN
             optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
+            svi_batch_size: (int) number of samples from posterior for estimating gradients
+            normalize_data: (bool) whether the data should be normalized
             random_seed: (int) seed for pytorch
         """
         super().__init__(normalize_data=normalize_data, random_seed=random_seed)
 
         self.num_iter_fit, self.prior_factor, self.feature_dim = num_iter_fit, prior_factor, feature_dim
+        self.svi_batch_size = svi_batch_size
 
-        # normalize data and convert to tensors
         """ ------ Data handling ------ """
-        self.train_x_tensor, self.train_t_tensor = self.initial_data_handling(train_x, train_t)
-        assert self.train_t_tensor.shape[-1] == 1
-        self.train_t_tensor = self.train_t_tensor.flatten()
+        self.train_x, self.train_t = self.initial_data_handling(train_x, train_t)
+        assert self.train_t.shape[-1] == 1
+        self.train_t = self.train_t.flatten()
 
         """ --- Setup model & inference --- """
         self._setup_model_guide(mean_module, covar_module, mean_nn_layers, kernel_nn_layers)
 
         # setup inference procedure
-        self._setup_optimizer(optimizer, lr_params)
-
-        self.svi = SVI(self.model, self.guide, self.optimizer, loss=Trace_ELBO(num_particles=svi_batch_size))
+        self._setup_optimizer(optimizer, lr)
 
         self.fitted = False
 
 
-    def fit(self, verbose=True, valid_x=None, valid_t=None, log_period=1000):
+    def fit(self, valid_x=None, valid_t=None, verbose=True, log_period=1000):
         """
         fits prior parameters of the  GPC model by maximizing the mll of the training data
 
         Args:
-            verbose: (boolean) whether to print training progress
             valid_x: (np.ndarray) validation inputs - shape: (n_samples, ndim_x)
             valid_y: (np.ndarray) validation targets - shape: (n_samples, 1)
+            verbose: (boolean) whether to print training progress
             log_period: (int) number of steps after which to print stats
         """
 
@@ -78,7 +76,10 @@ class GPRegressionLearnedVI(RegressionModel):
 
         for itr in range(1, self.num_iter_fit + 1):
 
-            loss = self.svi.step(self.train_x_tensor, self.train_t_tensor)
+            self.optimizer.zero_grad()
+            loss = self.get_neg_elbo(self.train_x, self.train_t)
+            loss.backward()
+            self.optimizer.step()
 
             # print training stats stats
             if verbose and (itr == 1 or itr % log_period == 0):
@@ -94,12 +95,12 @@ class GPRegressionLearnedVI(RegressionModel):
 
                 self.logger.info(message)
 
-        print("-------- Parameter summary --------")
-        for param_name, param_value in pyro.get_param_store().named_parameters():
-            try:
-                print("{:<50}{:<30}".format(param_name, param_value.cpu().item()))
-            except:
-                pass
+        # print("-------- Parameter summary --------")
+        # for param_name, param_value in pyro.get_param_store().named_parameters():
+        #     try:
+        #         print("{:<50}{:<30}".format(param_name, param_value.cpu().item()))
+        #     except:
+        #         pass
 
         self.fitted = True
 
@@ -114,27 +115,22 @@ class GPRegressionLearnedVI(RegressionModel):
         Returns:
             (pred_mean, pred_std) predicted mean and standard deviation corresponding to p(y_test|X_test, X_train, y_train)
         """
-        assert mode in ['Bayes', 'MAP']
+        assert mode in ['bayes', 'Bayes', 'MAP', 'map']
 
         with torch.no_grad():
             test_x_normalized = self._normalize_data(test_x)
-            test_x_tensor = torch.from_numpy(test_x_normalized).float().to(device)
+            test_x = torch.from_numpy(test_x_normalized).float().to(device)
 
-            if mode == 'Bayes':
-                pred_dists = []
-                for i in range(n_posterior_samples):
-                    gp_model, likelihood = self.guide(self.train_x_tensor, self.train_t_tensor)
-                    pred_dist = likelihood(gp_model(test_x_tensor))
-                    pred_dists.append(AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
-                                                                          normalization_std=self.y_std))
+            if mode == 'Bayes' or mode == 'bayes':
+                pred_dist = self.get_pred_dist(self.train_x, self.train_t, test_x, n_post_samples=n_posterior_samples)
+                pred_dist = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
+                                                            normalization_std=self.y_std)
 
-                pred_dist = EqualWeightedMixtureDist(pred_dists)
+                pred_dist = EqualWeightedMixtureDist(pred_dist, batched=True)
             else:
-                gp_model, likelihood = self.guide(self.train_x_tensor, self.train_t_tensor, mode_delta=True)
-                pred_dist = likelihood(gp_model(test_x_tensor))
-                pred_dist = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean, normalization_std=self.y_std)
-
-
+                pred_dist = self.get_pred_dist_map(self.train_x, self.train_t, test_x)
+                pred_dist = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
+                                                          normalization_std=self.y_std)
             if return_density:
                 return pred_dist
             else:
@@ -167,186 +163,105 @@ class GPRegressionLearnedVI(RegressionModel):
             return avg_log_likelihood.cpu().item(), rmse.cpu().item()
 
 
-    def state_dict(self): #TODO
-        state_dict = {
-            'model': self.model.state_dict(),
-            'optimizer': self.optimizer.state_dict()
-        }
-        return state_dict
-
-    def load_state_dict(self, state_dict): #TODO
-        self.model.load_state_dict(state_dict['model'])
-        self.optimizer.load_state_dict(state_dict['optimizer'])
-
     def _setup_model_guide(self, mean_module_str, covar_module_str, mean_nn_layers, kernel_nn_layers):
-        _ones = torch.ones(self.input_dim).to(device)
-        assert mean_module_str in ['NN', 'constant', 'zero']
+        assert mean_module_str in ['NN', 'constant']
         assert covar_module_str in ['NN', 'SE']
 
-        prefix = str(self.__hash__())[-6:] + '_'
+        """ random gp model """
+        self.random_gp = RandomGP(size_in=self.input_dim, prior_factor=self.prior_factor,
+                                  covar_module_str=covar_module_str, mean_module_str=mean_module_str,
+                                  mean_nn_layers=mean_nn_layers, kernel_nn_layers=kernel_nn_layers)
 
-        if mean_module_str == 'NN':
-            mean_nn = NeuralNetwork(input_dim=self.input_dim, output_dim=1,
-                                    layer_sizes=mean_nn_layers, prefix=prefix + 'mean_nn_').to(device)
-        if covar_module_str == 'NN':
-            kernel_nn = NeuralNetwork(input_dim=self.input_dim, output_dim=self.feature_dim,
-                                      layer_sizes=kernel_nn_layers, prefix=prefix + 'kernel_nn_').to(device)
+        param_shapes_dict = self.random_gp.parameter_shapes()
 
-        def model(x_tensor, t_tensor):
+        """ variational posterior """
+        self.posterior = RandomGPPosterior(param_shapes_dict)
 
-            # mean function prior
-            if mean_module_str == 'NN':
-                lifted_mean_nn = _lift_nn_prior(mean_nn, "mean_nn")
-                nn_mean_fn = lifted_mean_nn()
-                mean_module = None
-            elif covar_module_str == 'constant':
-                constant_mean = pyro.sample("constant_mean", Normal(0.0 * _ones, 1.0 * _ones))
-                mean_module = ConstantMeanLight(constant_mean)
-                nn_mean_fn = None
-            else:
-                mean_module = gpytorch.means.ZeroMean().to(device)
-                nn_mean_fn = None
+        """ define negative ELBO """
+        def get_neg_elbo(x_data, y_data):
+            # tile data to svi_batch_shape
+            x_data = x_data.view(torch.Size((1,)) + x_data.shape).repeat(self.svi_batch_size, 1, 1)
+            y_data = y_data.view(torch.Size((1,)) + y_data.shape).repeat(self.svi_batch_size, 1)
 
-            # kernel function prior
+            param_sample = self.posterior.rsample(sample_shape=(self.svi_batch_size,))
+            elbo = self.random_gp.log_prob(param_sample, x_data, y_data) - self.prior_factor * self.posterior.log_prob(param_sample)
 
-            if covar_module_str == 'NN':
-                lifted_kernel_nn = _lift_nn_prior(kernel_nn, "kernel_nn")
-                nn_kernel_fn = lifted_kernel_nn()
-                kernel_dim = self.feature_dim
-            else:
-                nn_kernel_fn = None
-                kernel_dim = self.input_dim
+            assert elbo.ndim == 1 and elbo.shape[0] == self.svi_batch_size
+            return - torch.mean(elbo)
 
-            lengthscale = pyro.sample("lengthscale",
-                                      LogNormal(loc=0.0 * torch.ones(kernel_dim).to(device),
-                                                scale=2.0 * torch.ones(kernel_dim).to(device)).to_event(1))
-            outputscale = pyro.sample("outputscale", LogNormal(torch.tensor(0.0), torch.tensor(20.0).to(device)))
-            covar_module = SEKernelLight(lengthscale, outputscale)
+        self.get_neg_elbo = get_neg_elbo
 
-            # noise variance prior
-            noise_prior = {'noise_covar.raw_noise': Normal(torch.tensor(0.0).to(device), torch.tensor(2.0).to(device))}
-            lifted_likelihood = pyro.random_module('likelihood', gpytorch.likelihoods.GaussianLikelihood().to(device), noise_prior)
-            likelihood = lifted_likelihood()
+        """ define predictive dist """
+        def get_pred_dist(x_context, y_context, x_valid, n_post_samples=100):
+            with torch.no_grad():
+                x_context = x_context.view(torch.Size((1,)) + x_context.shape).repeat(n_post_samples, 1, 1)
+                y_context = y_context.view(torch.Size((1,)) + y_context.shape).repeat(n_post_samples, 1)
+                x_valid = x_valid.view(torch.Size((1,)) + x_valid.shape).repeat(n_post_samples, 1, 1)
 
-            gp_model = LearnedGPRegressionModel(x_tensor, t_tensor, likelihood,
-                                                learned_kernel=nn_kernel_fn, learned_mean=nn_mean_fn,
-                                                covar_module=covar_module, mean_module=mean_module)
-            mll_fn = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, gp_model).to(device)
-            gp_model.train()
-            likelihood.train()
+                param_sample = self.posterior.sample(sample_shape=(n_post_samples,))
+                gp_fn = self.random_gp.get_forward_fn(param_sample)
+                gp, likelihood = gp_fn(x_context, y_context, train=False)
+                pred_dist = likelihood(gp(x_valid))
+            return pred_dist
 
-            pred = gp_model(x_tensor)
-            exponent_fn = lambda t_tensor: (1.0 / self.prior_factor) * mll_fn(pred, t_tensor)
+        def get_pred_dist_map(x_context, y_context, x_valid):
+            with torch.no_grad():
+                x_context = x_context.view(torch.Size((1,)) + x_context.shape).repeat(1, 1, 1)
+                y_context = y_context.view(torch.Size((1,)) + y_context.shape).repeat(1, 1)
+                x_valid = x_valid.view(torch.Size((1,)) + x_valid.shape).repeat(1, 1, 1)
+                param = self.posterior.mode()
+                param = param.view(torch.Size((1,)) + param.shape).repeat(1, 1)
 
-            pyro.sample("obs", UnnormalizedExpDist(exponent_fn=exponent_fn), obs=t_tensor)
+                gp_fn = self.random_gp.get_forward_fn(param)
+                gp, likelihood = gp_fn(x_context, y_context, train=False)
+                pred_dist = likelihood(gp(x_valid))
+            return MultivariateNormal(pred_dist.loc, pred_dist.covariance_matrix[0])
 
-            return UnnormalizedExpDist(exponent_fn=exponent_fn).log_prob(t_tensor).cpu().item()
-
-        def guide(x_tensor, t_tensor, mode_delta=False):
-            _delta_wrap = _get_delta_wrap(mode_delta)
-
-            # mean function posterior
-
-            if mean_module_str == 'NN':
-                lifted_mean_nn = _lift_nn_posterior(mean_nn, "mean_nn", mode_delta=mode_delta)
-                nn_mean_fn = lifted_mean_nn()
-                mean_module = None
-            elif covar_module_str == 'constant':
-                constant_mean_q_loc = pyro.param(prefix + "constant_mean_q_loc", 0.0 * _ones)
-                constant_mean_q_scale = pyro.param(prefix + "constant_mean_q_scale", 1.0 * _ones)
-                constant_mean = pyro.sample("constant_mean", _delta_wrap(Normal(constant_mean_q_loc, constant_mean_q_scale)))
-                mean_module = ConstantMeanLight(constant_mean)
-                nn_mean_fn = None
-            else:
-                mean_module = gpytorch.means.ZeroMean().to(device)
-                nn_mean_fn = None
-
-            # kernel function posterior
-            if covar_module_str == 'NN':
-                lifted_kernel_nn = _lift_nn_posterior(kernel_nn, "kernel_nn", mode_delta=mode_delta)
-                nn_kernel_fn = lifted_kernel_nn()
-                kernel_dim = self.feature_dim
-            else:
-                nn_kernel_fn = None
-                kernel_dim = self.input_dim
-
-            lengthscale_q_loc = pyro.param(prefix + "lengthscale_q_loc", 0.0 * torch.ones(kernel_dim).to(device))
-            lengthscale_q_scale = pyro.param(prefix + "lengthscale_q_scale", 1.0 * torch.ones(kernel_dim).to(device))
-            lengthscale = pyro.sample("lengthscale", _delta_wrap(LogNormal(lengthscale_q_loc, lengthscale_q_scale)).to_event(1))
-
-            outputscale_q_loc = pyro.param(prefix + "outputscale_q_loc", torch.tensor(0.0).to(device))
-            outputscale_q_scale = pyro.param(prefix + "outputscale_q_scale", torch.tensor(1.0).to(device))
-            outputscale = pyro.sample("outputscale", _delta_wrap(LogNormal(outputscale_q_loc, outputscale_q_scale)))
-
-            covar_module = SEKernelLight(lengthscale, outputscale)
-
-            # noise variance posterior
-            noise_var_q_loc = pyro.param(prefix + "noise_var_q_loc", torch.tensor([0.0]).to(device))
-            noise_var_q_scale = pyro.param(prefix + "noise_var_q_scale", torch.tensor([1.0]).to(device))
-            noise_prior = {'noise_covar.raw_noise': _delta_wrap(Normal(noise_var_q_loc, noise_var_q_scale))}
-            lifted_likelihood = pyro.random_module('likelihood', gpytorch.likelihoods.GaussianLikelihood(), noise_prior)
-            likelihood = lifted_likelihood()
-
-            gp_model = LearnedGPRegressionModel(x_tensor, t_tensor, likelihood,
-                                                learned_kernel=nn_kernel_fn, learned_mean=nn_mean_fn,
-                                                covar_module=covar_module, mean_module=mean_module)
-            gp_model.eval()
-            likelihood.eval()
-
-            return gp_model, likelihood
-
-        self.model = model
-        self.guide = guide
-
+        self.get_pred_dist = get_pred_dist
+        self.get_pred_dist_map = get_pred_dist_map
 
     def _setup_optimizer(self, optimizer, lr):
         if optimizer == 'Adam':
-            self.optimizer = pyro.optim.Adam({'lr': lr})
+            self.optimizer = torch.optim.Adam(self.posterior.parameters(), lr=lr)
         elif optimizer == 'SGD':
-            self.optimizer = pyro.optim.SGD({'lr': lr})
+            self.optimizer = torch.optim.SGD(self.posterior.parameters(), lr=lr)
         else:
             raise NotImplementedError('Optimizer must be Adam or SGD')
 
 
-def _lift_nn_prior(net, name, weight_prior_scale=1.0, bias_prior_scale=1000.0):
-    priors = {}
-    for name, param in net.named_parameters():
-        if 'bias' in name:
-            priors[name] = Normal(loc=torch.zeros_like(param).to(device),
-                                  scale=bias_prior_scale * torch.ones_like(param).to(device)).to_event(1)
-        if 'weight' in name:
-            priors[name] = Normal(loc=torch.zeros_like(param).to(device),
-                                  scale=weight_prior_scale * torch.ones_like(param).to(device)).to_event(2)
 
-    # lift module parameters to random variables sampled from the priors
-    return pyro.random_module(name, net, priors)
+if __name__ == "__main__":
 
-def _lift_nn_posterior(net, name, mode_delta=False):
-    _delta_wrap = _get_delta_wrap(mode_delta)
+    """ 1) Generate some training data from GP prior """
+    from experiments.data_sim import GPFunctionsDataset
 
-    vi_posteriors = {}
-    for name, param in net.named_parameters():
-        assert 'bias' in name or 'weight' in name
-        vi_mu_param = pyro.param("%s_mu" % name, torch.randn_like(param).to(device))
-        vi_sigma_param = F.softplus(pyro.param("%s_sigma_raw" % name, torch.randn_like(param).to(device)))
-        if 'bias' in name:
-            vi_posteriors[name] = _delta_wrap(Normal(loc=vi_mu_param, scale=vi_sigma_param)).to_event(1)
-        if 'weight' in name:
-            vi_posteriors[name] = _delta_wrap(Normal(loc=vi_mu_param, scale=vi_sigma_param)).to_event(2)
+    data_sim = GPFunctionsDataset(random_state=np.random.RandomState(26))
+    meta_train_data = data_sim.generate_meta_train_data(n_tasks=1, n_samples=200)
 
-    return pyro.random_module(name, nn_module=net, prior=vi_posteriors)
+    train_x = meta_train_data[0][0][:50]
+    train_y = meta_train_data[0][1][:50]
+    test_x = meta_train_data[0][0][50:]
+    test_y = meta_train_data[0][1][50:]
 
-def _get_delta_wrap(mode_delta=False):
-    if mode_delta:
-        def _delta_wrap(dist):
-            if isinstance(dist, Normal):
-                return Delta(dist.mean)
-            elif isinstance(dist, LogNormal):
-                mode = torch.exp(dist.loc - dist.scale ** 2)
-                return Delta(mode)
-            else:
-                raise NotImplementedError
-    else:
-        def _delta_wrap(dist):
-            return dist
-    return _delta_wrap
+    """ 2) train model """
+
+    for prior_factor in [0.01]:
+        gpr = GPRegressionLearnedVI(train_x, train_y, lr=1e-2, prior_factor=0.1, covar_module='NN', mean_module='NN',
+                                    svi_batch_size=2, num_iter_fit=5000, mean_nn_layers=(16, 16),
+                                    kernel_nn_layers=(16, 16), normalize_data=True)
+
+        gpr.fit(valid_x=test_x, valid_t=test_y, log_period=1000)
+
+        """ plotting """
+        for mode in ['bayes']:
+
+            from matplotlib import pyplot as plt
+            plt.scatter(train_x, train_y)
+
+            x_plot = np.sort(test_x.flatten()).reshape(-1, 1)
+            y_plot, y_std = gpr.predict(x_plot, mode=mode)
+
+            plt.plot(x_plot, y_plot)
+            plt.fill_between(x_plot.flatten(), y_plot-y_std, y_plot+y_std, alpha=.5)
+            plt.title("%s, prior_factor=%.4f"%(mode, prior_factor))
+            plt.show()
