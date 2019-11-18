@@ -12,8 +12,8 @@ class RegressionModel:
         self.input_dim = None
         self.output_dim = None
         self.n_train_samples = None
-        self.train_x_tensor = None
-        self.train_t_tensor = None
+        self.train_x = None
+        self.train_t = None
 
         if random_seed is not None:
             torch.manual_seed(random_seed)
@@ -67,7 +67,7 @@ class RegressionModel:
         train_x_normalized, train_t_normalized = self._normalize_data(train_x, train_t)
 
         # c) Convert the data into pytorch tensors
-        self.train_x_tensor = torch.from_numpy(train_x_normalized).contiguous().float().to(device)
-        self.train_t_tensor = torch.from_numpy(train_t_normalized).contiguous().float().to(device)
+        self.train_x = torch.from_numpy(train_x_normalized).contiguous().float().to(device)
+        self.train_t = torch.from_numpy(train_t_normalized).contiguous().float().to(device)
 
-        return self.train_x_tensor, self.train_t_tensor
+        return self.train_x, self.train_t

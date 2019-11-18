@@ -42,7 +42,6 @@ class AffineTransformedDistribution(TransformedDistribution):
     def variance(self):
         return torch.exp(torch.log(self.base_dist.variance) + 2 * torch.log(self.scale_tensor))
 
-
 class UnnormalizedExpDist(Distribution):
     r"""
     Creates a an unnormalized distribution with density function with
@@ -63,7 +62,6 @@ class UnnormalizedExpDist(Distribution):
     def log_prob(self, value):
         return self.exponent_fn(value)
 
-
 class FactorizedNormal(Distribution):
 
     def __init__(self, loc, scale, summation_axis=-1):
@@ -75,14 +73,26 @@ class FactorizedNormal(Distribution):
 
 class EqualWeightedMixtureDist(Distribution):
 
-    def __init__(self, dists):
+    def __init__(self, dists, batched=False):
+        self.batched = batched
+        if batched:
+            assert isinstance(dists, torch.distributions.Distribution)
+            self.n_dists = dists.batch_shape
+            event_shape = dists.event_shape
+        else:
+            assert all([isinstance(d, torch.distributions.Distribution) for d in dists])
+            event_shape = dists[0].event_shape
+            self.n_dists = len(dists)
         self.dists = dists
-        self.n_dists = len(dists)
-        super().__init__()
+
+        super().__init__(event_shape=event_shape)
 
     @property
     def mean(self):
-        return torch.mean(torch.stack([dist.mean for dist in self.dists], dim=0), dim=0)
+        if self.batched:
+            return torch.mean(self.dists.mean, dim=0)
+        else:
+            return torch.mean(torch.stack([dist.mean for dist in self.dists], dim=0), dim=0)
 
     @property
     def stddev(self):
@@ -90,14 +100,18 @@ class EqualWeightedMixtureDist(Distribution):
 
     @property
     def variance(self):
-        means = torch.stack([dist.mean for dist in self.dists], dim=0)
+        if self.batched:
+            means = self.dists.mean
+            vars = self.dists.variance
+        else:
+            means = torch.stack([dist.mean for dist in self.dists], dim=0)
+            vars = torch.stack([dist.variance for dist in self.dists], dim=0)
+
         var1 = torch.mean((means - torch.mean(means, dim=0))**2, dim=0)
-        var2 = torch.mean(torch.stack([dist.variance for dist in self.dists], dim=0), dim=0)
+        var2 = torch.mean(vars, dim=0)
 
         # check shape
-        original_shape = self.dists[0].mean.shape
-        assert var1.shape == var2.shape == original_shape
-
+        assert var1.shape == var2.shape == self.event_shape
         return var1 + var2
 
     @property
@@ -105,9 +119,53 @@ class EqualWeightedMixtureDist(Distribution):
         return {}
 
     def log_prob(self, value):
-        log_probs_dists = torch.stack([dist.log_prob(value) for dist in self.dists])
+        if self.batched:
+            log_probs_dists = self.dists.log_prob(value)
+        else:
+            log_probs_dists = torch.stack([dist.log_prob(value) for dist in self.dists])
         return torch.logsumexp(log_probs_dists, dim=0) - torch.log(torch.tensor(self.n_dists).float())
 
+class CatDist(Distribution):
+
+    def __init__(self, dists, reduce_event_dim=True):
+        assert all([len(dist.event_shape) == 1 for dist in dists])
+        assert all([len(dist.batch_shape) == 0 for dist in dists])
+        self.reduce_event_dim = reduce_event_dim
+        self.dists = dists
+        self._event_shape = torch.Size((sum([dist.event_shape[0] for dist in self.dists]),))
+
+    def sample(self, sample_shape=torch.Size()):
+        return self._sample(sample_shape, sample_fn='sample')
+
+    def rsample(self, sample_shape=torch.Size()):
+        return self._sample(sample_shape, sample_fn='rsample')
+
+    def log_prob(self, value):
+        idx = 0
+        log_probs = []
+        for dist in self.dists:
+            n = dist.event_shape[0]
+            if value.ndim == 1:
+                val = value[idx:idx+n]
+            elif value.ndim == 2:
+                val = value[:, idx:idx + n]
+            elif value.ndim == 2:
+                val = value[:, :, idx:idx + n]
+            else:
+                raise NotImplementedError('Can only handle values up to 3 dimensions')
+            log_probs.append(dist.log_prob(val))
+            idx += n
+
+        for i in range(len(log_probs)):
+            if log_probs[i].ndim == 0:
+                log_probs[i] = log_probs[i].reshape((1,))
+
+        if self.reduce_event_dim:
+            return torch.sum(torch.stack(log_probs, dim=0), dim=0)
+        return torch.stack(log_probs, dim=0)
+
+    def _sample(self, sample_shape, sample_fn='sample'):
+        return torch.cat([getattr(d, sample_fn)(sample_shape) for d in self.dists], dim=-1)
 
 """ ----------------------------------------------------"""
 """ ------------------ Neural Network ------------------"""
@@ -159,7 +217,7 @@ class VectorizedModel:
     def parameter_shapes(self):
         raise NotImplementedError
 
-    def names_parameters(self):
+    def named_parameters(self):
         raise NotImplementedError
 
     def parameters(self):
@@ -319,7 +377,7 @@ from gpytorch.functions import RBFCovariance
 from gpytorch.utils.broadcasting import _mul_broadcast_shape
 
 
-class ConstantMeanLight(Mean):
+class ConstantMeanLight(gpytorch.means.Mean):
     def __init__(self, constant=torch.ones(1), batch_shape=torch.Size()):
         super(ConstantMeanLight, self).__init__()
         self.batch_shape = batch_shape
@@ -331,10 +389,10 @@ class ConstantMeanLight(Mean):
         else:
             return self.constant.expand(_mul_broadcast_shape(input.shape[:-1], self.constant.shape))
 
-class SEKernelLight(Kernel):
+class SEKernelLight(gpytorch.kernels.Kernel):
 
     def __init__(self, lengthscale=torch.tensor([1.0]), output_scale=torch.tensor(1.0)):
-        super(SEKernelLight, self).__init__()
+        super(SEKernelLight, self).__init__(batch_shape=(lengthscale.shape[0], ))
         self.length_scale = lengthscale
         self.ard_num_dims = lengthscale.shape[-1]
         self.output_scale = output_scale
@@ -360,6 +418,47 @@ class SEKernelLight(Kernel):
                                                                     dist_postprocess_func=self.postprocess_rbf,
                                                                     postprocess=False,
                                                                     **params))
+
+class HomoskedasticNoiseLight(gpytorch.likelihoods.noise_models._HomoskedasticNoiseBase):
+
+    def __init__(self, noise_var, *params, **kwargs):
+        self.noise_var = noise_var
+        self._modules = {}
+        self._parameters = {}
+
+    @property
+    def noise(self):
+        return self.noise_var
+
+    @noise.setter
+    def noise(self, value):
+        self.noise_var = value
+
+class GaussianLikelihoodLight(gpytorch.likelihoods._GaussianLikelihoodBase):
+
+
+    def __init__(self, noise_var, batch_shape=torch.Size()):
+        self.batch_shape = batch_shape
+        self._modules = {}
+        self._parameters = {}
+
+        noise_covar = HomoskedasticNoiseLight(noise_var)
+        super().__init__(noise_covar=noise_covar)
+
+    @property
+    def noise(self):
+        return self.noise_covar.noise
+
+    @noise.setter
+    def noise(self, value):
+        self.noise_covar.noise = value
+
+    def expected_log_prob(self, target, input, *params, **kwargs):
+        mean, variance = input.mean, input.variance
+        noise = self.noise_covar.noise
+
+        res = ((target - mean) ** 2 + variance) / noise + noise.log() + math.log(2 * math.pi)
+        return res.mul(-0.5).sum(-1)
 
 class LearnedGPRegressionModel(gpytorch.models.ExactGP):
     """GP model which can take a learned mean and learned kernel function."""

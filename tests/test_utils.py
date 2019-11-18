@@ -1,6 +1,8 @@
 import unittest
-from src.models import NeuralNetworkVectorized, NeuralNetwork, LinearVectorized
+from src.models import NeuralNetworkVectorized, NeuralNetwork, LinearVectorized, CatDist, EqualWeightedMixtureDist
 import torch
+import pyro
+import numpy as np
 
 class TestNN(unittest.TestCase):
 
@@ -138,7 +140,104 @@ class TestNNVectorized(unittest.TestCase):
 
         assert torch.sum(torch.abs(y1 - y2)).item() > 0.001
 
+class TestCatDist(unittest.TestCase):
 
+    def test_sampling1(self):
+        torch.manual_seed(22)
+        dist1 = pyro.distributions.Normal(torch.ones(7), 0.01 * torch.ones(7,)).to_event(1)
+        dist2 = pyro.distributions.Normal(-1 * torch.ones(3), 0.01 * torch.ones(3, )).to_event(1)
+
+        catdist = CatDist([dist1, dist2])
+        sample = catdist.sample((100,))
+        assert sample.shape == (100, 7+3)
+
+        sample1_mean = sample[:, :7].mean().item()
+        sample2_mean = sample[:, 7:].mean().item()
+        assert np.abs(sample1_mean - 1) < 0.2
+        assert np.abs(sample2_mean + 1) < 0.2
+
+    def test_sampling2(self):
+        torch.manual_seed(22)
+        dist1 = pyro.distributions.Normal(torch.ones(5), 0.01 * torch.ones(5,)).to_event(1)
+        dist2 = pyro.distributions.Normal(-1 * torch.ones(3), 0.01 * torch.ones(3, )).to_event(1)
+
+        catdist = CatDist([dist1, dist2])
+        sample = catdist.rsample((100,))
+        assert sample.shape == (100, 5+3)
+
+        sample1_mean = sample[:, :5].mean().item()
+        sample2_mean = sample[:, 5:].mean().item()
+        assert np.abs(sample1_mean - 1) < 0.2
+        assert np.abs(sample2_mean + 1) < 0.2
+
+    def test_pdf(self):
+        torch.manual_seed(22)
+        dist1 = pyro.distributions.Normal(torch.ones(7), 0.01 * torch.ones(7, )).to_event(1)
+        dist2 = pyro.distributions.Normal(-1 * torch.ones(3), 0.01 * torch.ones(3, )).to_event(1)
+        catdist = CatDist([dist1, dist2])
+
+        x1 = torch.normal(1.0, 0.01, size=(150, 10))
+        x2 = torch.normal(-1.0, 0.01, size=(150, 10))
+        x3 = torch.cat([x1[:, :7], x2[:, 7:]], dim=-1)
+
+        logp1 = catdist.log_prob(x1)
+        logp3 = catdist.log_prob(x3)
+        assert torch.mean(logp1).item() < -1000
+        assert torch.mean(logp3).item() > 10
+
+    def test_pdf2(self):
+        torch.manual_seed(22)
+        dist1 = pyro.distributions.Normal(torch.ones(7), 0.01 * torch.ones(7, )).to_event(1)
+        dist2 = pyro.distributions.Normal(-1 * torch.ones(3), 0.01 * torch.ones(3, )).to_event(1)
+        catdist1 = CatDist([dist1, dist2], reduce_event_dim=False)
+        catdist2 = CatDist([dist1, dist2], reduce_event_dim=True)
+
+        x1 = torch.normal(1.0, 0.01, size=(150, 10))
+        x2 = torch.normal(-1.0, 0.01, size=(150, 10))
+        x3 = torch.cat([x1[:, :7], x2[:, 7:]], dim=-1)
+
+        logp1 = torch.sum(catdist1.log_prob(x3), dim=0).numpy()
+        logp2 = catdist2.log_prob(x3).numpy()
+        assert np.array_equal(logp1, logp2)
+
+class TestEqualWeightedMixture(unittest.TestCase):
+
+    def setUp(self):
+        from pyro.distributions import Normal
+        self.mean1 = torch.normal(1., 0.1, size=(8,))
+        self.mean2 = torch.normal(-1., 0.1, size=(8,))
+
+        self.scale1 = torch.ones((8,))
+        self.scale2 = 2 * torch.ones((8,))
+
+        self.dist1 = Normal(self.mean1, self.scale1).to_event(1)
+        self.dist2 = Normal(self.mean2, self.scale2).to_event(1)
+
+        self.dist3 = Normal(torch.stack([self.mean1, self.mean2], dim=0),
+                            torch.stack([self.scale1, self.scale2], dim=0)).to_event(1)
+
+        self.mean_mix = (self.mean1 + self.mean2) / 2.0
+
+        var1 = ((self.mean1 - self.mean_mix)**2 + (self.mean2 - self.mean_mix)**2) / 2.0
+        var2 = (self.scale1**2 + self.scale2**2) / 2.0
+        self.var_mix = var1 + var2
+
+    def test_mean_var(self):
+        mixture = EqualWeightedMixtureDist([self.dist1, self.dist2])
+        assert np.array_equal(mixture.mean, self.mean_mix)
+        assert np.array_equal(mixture.variance, self.var_mix)
+
+        mixture = EqualWeightedMixtureDist(self.dist3, batched=True)
+        assert np.array_equal(mixture.mean, self.mean_mix)
+        assert np.array_equal(mixture.variance, self.var_mix)
+
+    def test_log_prob(self):
+        value = torch.normal(0.0, 2.0, size=(8,))
+        mixture1 = EqualWeightedMixtureDist([self.dist1, self.dist2])
+        mixture2 = EqualWeightedMixtureDist(self.dist3, batched=True)
+        p1 = mixture1.log_prob(value).item()
+        p2 = mixture2.log_prob(value).item()
+        assert np.array_equal(p1, p2)
 
 
 
