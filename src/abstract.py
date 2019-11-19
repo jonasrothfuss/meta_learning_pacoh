@@ -57,7 +57,7 @@ class RegressionModel:
 
         return pred_mean, pred_std
 
-    def initial_data_handling(self, train_x, train_t):
+    def _initial_data_handling(self, train_x, train_t):
         train_x, train_t = _handle_input_dimensionality(train_x, train_t)
         self.input_dim, self.output_dim = train_x.shape[-1], train_t.shape[-1]
         self.n_train_samples = train_x.shape[0]

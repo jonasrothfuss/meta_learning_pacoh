@@ -44,7 +44,7 @@ class GPRegressionLearned(RegressionModel):
         self.lr, self.weight_decay, self.num_iter_fit, self.lr_scheduler = lr, weight_decay, num_iter_fit, lr_scheduler
 
         """ ------ Data handling ------ """
-        self.train_x_tensor, self.train_t_tensor = self.initial_data_handling(train_x, train_t)
+        self.train_x_tensor, self.train_t_tensor = self._initial_data_handling(train_x, train_t)
         assert self.train_t_tensor.shape[-1] == 1
         self.train_t_tensor = self.train_t_tensor.flatten()
 

@@ -49,7 +49,7 @@ class GPRegressionLearnedVI(RegressionModel):
         self.weight_prior_std, self.bias_prior_std = weight_prior_std, bias_prior_std
 
         """ ------ Data handling ------ """
-        self.train_x, self.train_t = self.initial_data_handling(train_x, train_t)
+        self.train_x, self.train_t = self._initial_data_handling(train_x, train_t)
         assert self.train_t.shape[-1] == 1
         self.train_t = self.train_t.flatten()
 
@@ -115,6 +115,9 @@ class GPRegressionLearnedVI(RegressionModel):
             (pred_mean, pred_std) predicted mean and standard deviation corresponding to p(y_test|X_test, X_train, y_train)
         """
         assert mode in ['bayes', 'Bayes', 'MAP', 'map']
+
+        if test_x.ndim == 1:
+            test_x = np.expand_dims(test_x, axis=-1)
 
         with torch.no_grad():
             test_x_normalized = self._normalize_data(test_x)

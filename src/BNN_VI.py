@@ -43,7 +43,7 @@ class BayesianNeuralNetworkVI(RegressionModel):
         self.likelihood_std = likelihood_std
 
         """ ------Data handling ------ """
-        self.train_x_tensor, self.train_t_tensor = self.initial_data_handling(train_x, train_t)
+        self.train_x_tensor, self.train_t_tensor = self._initial_data_handling(train_x, train_t)
 
         # setup batch sampler
         dataset = torch.utils.data.TensorDataset(self.train_x_tensor, self.train_t_tensor)
