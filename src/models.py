@@ -111,7 +111,7 @@ class EqualWeightedMixtureDist(Distribution):
         var2 = torch.mean(vars, dim=0)
 
         # check shape
-        assert var1.shape == var2.shape == self.event_shape
+        assert var1.shape == var2.shape
         return var1 + var2
 
     @property
