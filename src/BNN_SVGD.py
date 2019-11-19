@@ -88,7 +88,6 @@ class BayesianNeuralNetworkSVGD(RegressionModel):
             kernel (std): SVGD kernel, either 'RBF' or 'IMQ'
             bandwidth (float): bandwidth of kernel, if None the bandwidth is chosen via heuristic
             num_particles (int): number of posterior particles
-                        optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
             optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
             normalize_data (bool): whether to normalize the data
             weight_prior_std (float): std of Gaussian prior on weights
