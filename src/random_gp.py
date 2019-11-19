@@ -96,7 +96,8 @@ class VectorizedGP(VectorizedModel):
         assert type(name) == str
         assert isinstance(tensor, torch.Tensor)
         assert name not in list(self._params.keys())
-        tensor = tensor.to(device)
+        if not device.type == tensor.device.type:
+            tensor = tensor.to(device)
         self._params[name] = tensor
         return tensor
 

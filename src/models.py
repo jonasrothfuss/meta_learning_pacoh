@@ -254,8 +254,8 @@ class LinearVectorized(VectorizedModel):
     def __init__(self, input_dim, output_dim):
         super().__init__(input_dim, output_dim)
 
-        self.weight = torch.normal(0, 1, size=(input_dim * output_dim,), requires_grad=True)
-        self.bias = torch.zeros(output_dim, requires_grad=True)
+        self.weight = torch.normal(0, 1, size=(input_dim * output_dim,), device=device, requires_grad=True)
+        self.bias = torch.zeros(output_dim, device=device, requires_grad=True)
 
         self.reset_parameters()
 
