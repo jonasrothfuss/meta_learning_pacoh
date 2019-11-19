@@ -71,3 +71,69 @@ class RegressionModel:
         self.train_t = torch.from_numpy(train_t_normalized).contiguous().float().to(device)
 
         return self.train_x, self.train_t
+
+class RegressionModelMetaLearned:
+
+    def __init__(self, normalize_data=True, random_seed=None):
+        self.normalize_data = normalize_data
+        self.logger = get_logger()
+        self.input_dim = None
+        self.output_dim = None
+
+        if random_seed is not None:
+            torch.manual_seed(random_seed)
+            self.rds_numpy = np.random.RandomState(random_seed + 1)
+        else:
+            self.rds_numpy = np.random
+
+    def _compute_normalization_stats(self, X, Y, stats_dict=None):
+        if stats_dict is None:
+            stats_dict = {}
+
+        if self.normalize_data:
+            # compute mean and std of data for normalization
+            stats_dict['x_mean'], stats_dict['y_mean'] = np.mean(X, axis=0), np.mean(Y, axis=0)
+            stats_dict['x_std'], stats_dict['y_std'] = np.std(X, axis=0), np.std(Y, axis=0)
+        else:
+            stats_dict['x_mean'], stats_dict['y_mean'] = np.zeros(X.shape[1]), np.zeros(Y.shape[1])
+            stats_dict['x_std'], stats_dict['y_std'] = np.ones(X.shape[1]), np.ones(Y.shape[1])
+
+        return stats_dict
+
+    def _normalize_data(self, X, Y=None, stats_dict=None):
+        assert "x_mean" in stats_dict and "x_std" in stats_dict, "requires computing normalization stats beforehand"
+        assert "y_mean" in stats_dict and "y_std" in stats_dict, "requires computing normalization stats beforehand"
+
+        X_normalized = (X - stats_dict["x_mean"]) / stats_dict["x_std"]
+
+        if Y is None:
+            return X_normalized
+        else:
+            Y_normalized = (Y - stats_dict["y_mean"]) / stats_dict["y_std"]
+            return X_normalized, Y_normalized
+
+    def _check_meta_data_shapes(self, meta_train_data):
+        for i in range(len(meta_train_data)):
+            meta_train_data[i] = _handle_input_dimensionality(*meta_train_data[i])
+        self.input_dim = meta_train_data[0][0].shape[-1]
+        self.output_dim = meta_train_data[0][1].shape[-1]
+
+        assert all([self.input_dim == train_x.shape[-1] and self.output_dim == train_t.shape[-1] for train_x, train_t in meta_train_data])
+
+    def _prepare_data_per_task(self, x_data, y_data, stats_dict={}, flatten_y=True):
+        # a) make arrays 2-dimensional
+        x_data, y_data = _handle_input_dimensionality(x_data, y_data)
+
+        # b) normalize data
+        stats_dict = self._compute_normalization_stats(x_data, y_data, stats_dict=stats_dict)
+        x_data, y_data = self._normalize_data(x_data, y_data, stats_dict=stats_dict)
+
+        if flatten_y:
+            assert y_data.shape[1] == 1
+            y_data = y_data.flatten()
+
+        # c) convert to tensors
+        x_tensor = torch.from_numpy(x_data).float().to(device)
+        y_tensor = torch.from_numpy(y_data).float().to(device)
+
+        return x_tensor, y_tensor, stats_dict

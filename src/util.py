@@ -4,18 +4,21 @@ import logging
 from absl import flags
 
 
-def _handle_input_dimensionality(x: np.ndarray, y: np.ndarray) -> (np.ndarray, np.ndarray):
-
+def _handle_input_dimensionality(x, y=None):
     if x.ndim == 1:
         x = np.expand_dims(x, -1)
-    if y.ndim == 1:
-        y = np.expand_dims(y, -1)
 
-    assert x.shape[0] == y.shape[0]
     assert x.ndim == 2
-    assert y.ndim == 2
 
-    return x, y
+    if y is not None:
+        if y.ndim == 1:
+            y = np.expand_dims(y, -1)
+        assert x.shape[0] == y.shape[0]
+        assert y.ndim == 2
+
+        return x, y
+    else:
+        return x
 
 def get_logger(log_dir=None, log_file='output.log', expname=''):
 
@@ -51,6 +54,13 @@ def get_logger(log_dir=None, log_file='output.log', expname=''):
             logger.log_dir = None
     return logger
 
+class DummyLRScheduler:
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def step(self, *args, **kwargs):
+        pass
 
 
 """ ------ Lightweight mltiprocessing utilities ------ """
