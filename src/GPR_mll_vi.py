@@ -50,7 +50,7 @@ class GPRegressionLearnedVI(RegressionModel):
         self.train_t = self.train_t.flatten()
 
         """ --- Setup model & inference --- """
-        self._setup_model_guide(mean_module, covar_module, mean_nn_layers, kernel_nn_layers, cov_type)
+        self._setup_model_inference(mean_module, covar_module, mean_nn_layers, kernel_nn_layers, cov_type)
 
         # setup inference procedure
         self._setup_optimizer(optimizer, lr)
@@ -163,7 +163,7 @@ class GPRegressionLearnedVI(RegressionModel):
             return avg_log_likelihood.cpu().item(), rmse.cpu().item()
 
 
-    def _setup_model_guide(self, mean_module_str, covar_module_str, mean_nn_layers, kernel_nn_layers, cov_type):
+    def _setup_model_inference(self, mean_module_str, covar_module_str, mean_nn_layers, kernel_nn_layers, cov_type):
         assert mean_module_str in ['NN', 'constant']
         assert covar_module_str in ['NN', 'SE']
 
@@ -210,7 +210,7 @@ class GPRegressionLearnedVI(RegressionModel):
                 x_context = x_context.view(torch.Size((1,)) + x_context.shape).repeat(1, 1, 1)
                 y_context = y_context.view(torch.Size((1,)) + y_context.shape).repeat(1, 1)
                 x_valid = x_valid.view(torch.Size((1,)) + x_valid.shape).repeat(1, 1, 1)
-                param = self.posterior.mode()
+                param = self.posterior.mode
                 param = param.view(torch.Size((1,)) + param.shape).repeat(1, 1)
 
                 gp_fn = self.random_gp.get_forward_fn(param)

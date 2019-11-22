@@ -33,6 +33,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
             learning_rate: (float) learning rate for AdamW optimizer
             task_batch_size: (int) batch size for meta training, i.e. number of tasks for computing grads
             optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
+            lr_scheduler: (str) whether to use a lr scheduler
             random_seed: (int) seed for pytorch
         """
         super().__init__(normalize_data, random_seed)
