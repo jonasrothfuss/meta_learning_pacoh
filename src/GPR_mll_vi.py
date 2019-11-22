@@ -1,19 +1,15 @@
 import torch
-import gpytorch
 import time
 import numpy as np
 
-import torch.nn.functional as F
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 from src.models import AffineTransformedDistribution, EqualWeightedMixtureDist
 from src.random_gp import RandomGP, RandomGPPosterior
 from src.util import _handle_input_dimensionality
-
-
-
-from torch.distributions.multivariate_normal import MultivariateNormal
 from src.abstract import RegressionModel
 from config import device
+
 
 class GPRegressionLearnedVI(RegressionModel):
 
@@ -240,18 +236,18 @@ if __name__ == "__main__":
     """ 1) Generate some training data from GP prior """
     from experiments.data_sim import GPFunctionsDataset
 
-    data_sim = GPFunctionsDataset(random_state=np.random.RandomState(26))
-    meta_train_data = data_sim.generate_meta_train_data(n_tasks=1, n_samples=200)
+    data_sim = GPFunctionsDataset(random_state=np.random.RandomState(35))
+    meta_train_data = data_sim.generate_meta_test_data(n_tasks=1, n_samples_context=40, n_samples_test=150)
 
-    train_x = meta_train_data[0][0][:50]
-    train_y = meta_train_data[0][1][:50]
-    test_x = meta_train_data[0][0][50:]
-    test_y = meta_train_data[0][1][50:]
+    train_x = meta_train_data[0][0]
+    train_y = meta_train_data[0][1]
+    test_x = meta_train_data[0][2]
+    test_y = meta_train_data[0][3]
 
     """ 2) train model """
 
     for prior_factor in [0.01]:
-        gpr = GPRegressionLearnedVI(train_x, train_y, lr=2e-3, prior_factor=prior_factor, covar_module='SE', mean_module='NN',
+        gpr = GPRegressionLearnedVI(train_x, train_y, lr=1e-3, prior_factor=prior_factor, covar_module='SE', mean_module='constant',
                                     svi_batch_size=10, num_iter_fit=5000, mean_nn_layers=(16, 16),
                                     kernel_nn_layers=(16, 16), normalize_data=True)
 
@@ -268,5 +264,5 @@ if __name__ == "__main__":
 
             plt.plot(x_plot, y_plot)
             plt.fill_between(x_plot.flatten(), y_plot-y_std, y_plot+y_std, alpha=.5)
-            plt.title("%s, prior_factor=%.4f"%(mode, prior_factor))
+            plt.title("VI %s, prior_factor=%.4f"%(mode, prior_factor))
             plt.show()

@@ -2,6 +2,7 @@ import copy
 import gpytorch
 import torch
 import math
+import torch.nn.functional as F
 from pyro.distributions import Normal, LogNormal, Independent
 from collections import OrderedDict
 
@@ -41,13 +42,13 @@ class VectorizedGP(VectorizedModel):
         if covar_module_str == "NN":
             self.kernel_nn = self._param_module('kernel_nn', NeuralNetworkVectorized(input_dim, feature_dim,
                                                         layer_sizes=kernel_nn_layers, nonlinearlity=nonlinearlity))
-            self.lengthscale = self._param('lengthscale', torch.ones(1, feature_dim))
+            self.lengthscale_raw = self._param('lengthscale_raw', torch.zeros(1, feature_dim))
         elif covar_module_str == 'SE':
-            self.lengthscale = self._param('lengthscale', torch.ones(1, input_dim))
+            self.lengthscale_raw = self._param('lengthscale_raw', torch.zeros(1, input_dim))
         else:
             raise NotImplementedError
 
-        self.noise = self._param('noise', torch.ones(1, 1))
+        self.noise_raw = self._param('noise_raw', torch.zeros(1, 1))
 
 
     def forward(self, x_data, y_data, train=True):
@@ -57,17 +58,20 @@ class VectorizedGP(VectorizedModel):
             learned_mean = self.mean_nn
             mean_module = None
         else:
-            mean_module = ConstantMeanLight(self.constant_mean)
             learned_mean = None
+            mean_module = ConstantMeanLight(self.constant_mean)
 
         if self.covar_module_str == "NN":
             learned_kernel = self.kernel_nn
         else:
             learned_kernel = None
-        lengthscale = self.lengthscale.view(self.lengthscale.shape[0], 1, self.lengthscale.shape[1])
+
+        lengthscale = F.softplus(self.lengthscale_raw)
+        lengthscale = lengthscale.view(lengthscale.shape[0], 1, lengthscale.shape[1])
         covar_module = SEKernelLight(lengthscale)
 
-        likelihood = GaussianLikelihoodLight(self.noise)
+        noise = F.softplus(self.noise_raw)
+        likelihood = GaussianLikelihoodLight(noise)
         gp = LearnedGPRegressionModel(x_data, y_data, likelihood, mean_module=mean_module, covar_module=covar_module,
                                       learned_mean=learned_mean, learned_kernel=learned_kernel)
         if train:
@@ -121,25 +125,25 @@ class RandomGP:
                 mean_p_scale = torch.ones(1).to(device)
                 self._param_dist(name, Normal(mean_p_loc, mean_p_scale).to_event(1))
 
-            if name == 'lengthscale':
+            if name == 'lengthscale_raw':
                 lengthscale_p_loc = torch.zeros(shape[-1]).to(device)
                 lengthscale_p_scale = torch.ones(shape[-1]).to(device)
-                self._param_dist(name, LogNormal(lengthscale_p_loc, lengthscale_p_scale).to_event(1))
+                self._param_dist(name, Normal(lengthscale_p_loc, lengthscale_p_scale).to_event(1))
 
-            if name == 'noise':
-                noise_p_loc = torch.log(0.1 * torch.ones(1)).to(device)
-                noise_p_scale = 0.2 * torch.ones(1).to(device)
-                self._param_dist(name, LogNormal(noise_p_loc, noise_p_scale).to_event(1))
+            if name == 'noise_raw':
+                noise_p_loc = -1. * torch.ones(1).to(device)
+                noise_p_scale = torch.ones(1).to(device)
+                self._param_dist(name, Normal(noise_p_loc, noise_p_scale).to_event(1))
 
             if 'mean_nn' in name or 'kernel_nn' in name:
-                    mean = torch.zeros(shape).to(device)
-                    if "weight" in name:
-                        std = weight_prior_std * torch.ones(shape).to(device)
-                    elif "bias" in name:
-                        std = bias_prior_std * torch.ones(shape).to(device)
-                    else:
-                        raise NotImplementedError
-                    self._param_dist(name, Normal(mean, std).to_event(1))
+                mean = torch.zeros(shape).to(device)
+                if "weight" in name:
+                    std = weight_prior_std * torch.ones(shape).to(device)
+                elif "bias" in name:
+                    std = bias_prior_std * torch.ones(shape).to(device)
+                else:
+                    raise NotImplementedError
+                self._param_dist(name, Normal(mean, std).to_event(1))
 
         # check that parameters in prior and gp modules are aligned
         for param_name_gp, param_name_prior in zip(self.gp.named_parameters().keys(), self._param_dists.keys()):
@@ -196,15 +200,10 @@ class RandomGPPosterior(torch.nn.Module):
 
         for name, shape in named_param_shapes.items():
 
-            if name == 'constant_mean':
-                self.const_mean_loc = _near_zero_params(shape)
-                self.const_mean_scale_raw = _near_zero_params(shape)
-                self._dist(name, lambda name: Normal(self.const_mean_loc, self.const_mean_scale_raw.exp()).to_event(1))
-
-            if name == 'lengthscale' or name == 'noise':
+            if name == 'lengthscale_raw' or name == 'noise_raw' or name == 'constant_mean':
                 setattr(self, name + '_loc', _near_zero_params(shape))
                 setattr(self, name + '_scale_raw', _near_zero_params(shape))
-                self._dist(name, lambda name: LogNormal(getattr(self, name + '_loc'), getattr(self, name + '_scale_raw').exp()).to_event(1))
+                self._dist(name, lambda name: Normal(getattr(self, name + '_loc'), getattr(self, name + '_scale_raw').exp()).to_event(1))
 
 
             if 'mean_nn' in name or 'kernel_nn' in name:
