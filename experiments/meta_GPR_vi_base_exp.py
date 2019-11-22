@@ -23,9 +23,10 @@ flags.DEFINE_integer('seed', default=28, help='random seed')
 flags.DEFINE_integer('n_threads', default=8, help='number of threads')
 
 # Configuration for GP-Prior learning
-flags.DEFINE_float('weight_prior_scale', default=0.1, help='scale of hyper-prior distribution on NN weights')
+flags.DEFINE_float('weight_prior_std', default=0.5, help='scale of hyper-prior distribution on NN weights')
 flags.DEFINE_float('prior_factor', default=0.1, help='factor weighting the importance of the hyper-prior relative to '
                                                      'the meta-likelihood')
+flags.DEFINE_string('cov_type', default='full', help='type of VI posterior covariance matrix, either of [diag, full]')
 flags.DEFINE_string('mean_module', default='NN', help='specifies what to use as mean function of the GP prior')
 flags.DEFINE_string('covar_module', default='NN', help='specifies what to use as kernel function of the GP prior')
 flags.DEFINE_integer('num_layers', default=5, help='number of neural network layers for GP-prior NNs')
@@ -33,8 +34,9 @@ flags.DEFINE_integer('layer_size', default=32, help='number of neural network la
 flags.DEFINE_float('lr', default=1e-3, help='learning rate for AdamW optimizer')
 flags.DEFINE_integer('n_iter_fit', default=100000, help='number of gradient steps')
 flags.DEFINE_string('optimizer', default='Adam', help='type of optimizer to use - either \'SGD\' or \'ADAM\'')
-flags.DEFINE_integer('svi_batch_size', default=1000, help='number of posterior samples to estimate grads')
-#flags.DEFINE_integer('batch_size', 20, help='batch size for meta training, i.e. number of tasks for computing grads') #TODO
+flags.DEFINE_integer('svi_batch_size', default=10, help='number of posterior samples to estimate grads')
+flags.DEFINE_integer('task_batch_size', -1, help='batch size for meta training, i.e. number of tasks for computing grads')
+flags.DEFINE_boolean('lr_scheduler', False, help='whether to use a learning rate scheduler')
 
 # Configuration w.r.t. data
 flags.DEFINE_boolean('normalize_data', default=True, help='whether to normalize the data')
@@ -76,7 +78,7 @@ def main(argv):
     torch.set_num_threads(FLAGS.n_threads)
 
     gp_meta = GPRegressionMetaLearnedVI(data_train,
-                                        weight_prior_scale=FLAGS.weight_prior_scale,
+                                        weight_prior_std=FLAGS.weight_prior_std,
                                         prior_factor=FLAGS.prior_factor,
                                         covar_module=FLAGS.covar_module,
                                         mean_module=FLAGS.mean_module,
@@ -84,10 +86,13 @@ def main(argv):
                                         mean_nn_layers=nn_layers,
                                         random_seed=FLAGS.seed,
                                         optimizer=FLAGS.optimizer,
-                                        lr_params=FLAGS.lr,
+                                        lr=FLAGS.lr,
+                                        lr_scheduler=FLAGS.lr_scheduler,
                                         num_iter_fit=FLAGS.n_iter_fit,
                                         svi_batch_size=FLAGS.svi_batch_size,
                                         normalize_data=FLAGS.normalize_data,
+                                        cov_type=FLAGS.cov_type,
+                                        task_batch_size=FLAGS.task_batch_size
                                       )
 
     gp_meta.meta_fit(valid_tuples=data_test[:100], log_period=1000)
