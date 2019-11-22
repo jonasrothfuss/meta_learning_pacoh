@@ -14,7 +14,7 @@ from config import device
 class GPRegressionLearnedVI(RegressionModel):
 
     def __init__(self, train_x, train_t, lr=1e-3, num_iter_fit=10000, prior_factor=0.01, feature_dim=1,
-                 weight_prior_std=1.0, bias_prior_std=3.0,
+                 weight_prior_std=1.0, bias_prior_std=3.0, cov_type='full',
                  covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
                  optimizer='Adam', svi_batch_size=10, normalize_data=True, random_seed=None):
         """
@@ -50,7 +50,7 @@ class GPRegressionLearnedVI(RegressionModel):
         self.train_t = self.train_t.flatten()
 
         """ --- Setup model & inference --- """
-        self._setup_model_guide(mean_module, covar_module, mean_nn_layers, kernel_nn_layers)
+        self._setup_model_guide(mean_module, covar_module, mean_nn_layers, kernel_nn_layers, cov_type)
 
         # setup inference procedure
         self._setup_optimizer(optimizer, lr)
@@ -163,7 +163,7 @@ class GPRegressionLearnedVI(RegressionModel):
             return avg_log_likelihood.cpu().item(), rmse.cpu().item()
 
 
-    def _setup_model_guide(self, mean_module_str, covar_module_str, mean_nn_layers, kernel_nn_layers):
+    def _setup_model_guide(self, mean_module_str, covar_module_str, mean_nn_layers, kernel_nn_layers, cov_type):
         assert mean_module_str in ['NN', 'constant']
         assert covar_module_str in ['NN', 'SE']
 
@@ -176,7 +176,7 @@ class GPRegressionLearnedVI(RegressionModel):
         param_shapes_dict = self.random_gp.parameter_shapes()
 
         """ variational posterior """
-        self.posterior = RandomGPPosterior(param_shapes_dict)
+        self.posterior = RandomGPPosterior(param_shapes_dict, cov_type=cov_type)
 
         """ define negative ELBO """
         def get_neg_elbo(x_data, y_data):
@@ -246,15 +246,15 @@ if __name__ == "__main__":
 
     """ 2) train model """
 
-    for prior_factor in [0.01]:
-        gpr = GPRegressionLearnedVI(train_x, train_y, lr=1e-3, prior_factor=prior_factor, covar_module='SE', mean_module='constant',
+    for prior_factor in [1.0]:
+        gpr = GPRegressionLearnedVI(train_x, train_y, lr=2e-3, prior_factor=prior_factor, covar_module='SE', mean_module='constant',
                                     svi_batch_size=10, num_iter_fit=5000, mean_nn_layers=(16, 16),
-                                    kernel_nn_layers=(16, 16), normalize_data=True)
+                                    kernel_nn_layers=(16, 16), normalize_data=True, cov_type='full')
 
         gpr.fit(valid_x=test_x, valid_t=test_y, log_period=500)
 
         """ plotting """
-        for mode in ['bayes']:
+        for mode in ['map', 'bayes']:
 
             from matplotlib import pyplot as plt
             plt.scatter(train_x, train_y)

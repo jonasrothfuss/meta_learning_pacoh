@@ -189,43 +189,36 @@ class RandomGP:
         return param_shapes_dict
 
 class RandomGPPosterior(torch.nn.Module):
+    """
+    Gaussian VI posterior on the GP-Prior parameters
+    """
 
-    def __init__(self, named_param_shapes, init_std=0.1):
+    def __init__(self, named_param_shapes, init_std=0.1, cov_type='full'):
         super().__init__()
 
-        self._param_dist_funcs = OrderedDict()
+        assert cov_type in ['diag', 'full']
 
-        _near_zero_params = lambda size: torch.nn.Parameter(torch.normal(0.0, init_std, size=size, device=device))
-        _init_scale_raw = lambda size: torch.nn.Parameter(torch.normal(math.log(0.1), init_std, size=size, device=device))
+        self.param_idx_ranges = OrderedDict()
 
+        idx_start = 0
         for name, shape in named_param_shapes.items():
+            assert len(shape) == 1
+            idx_end = idx_start + shape[0]
+            self.param_idx_ranges[name] = (idx_start, idx_end)
+            idx_start = idx_end
 
-            if name == 'lengthscale_raw' or name == 'noise_raw' or name == 'constant_mean':
-                setattr(self, name + '_loc', _near_zero_params(shape))
-                setattr(self, name + '_scale_raw', _near_zero_params(shape))
-                self._dist(name, lambda name: Normal(getattr(self, name + '_loc'), getattr(self, name + '_scale_raw').exp()).to_event(1))
+        param_shape = torch.Size((idx_start,))
+        self.loc = torch.nn.Parameter(torch.normal(0.0, init_std, size=param_shape, device=device))
 
-
-            if 'mean_nn' in name or 'kernel_nn' in name:
-                name = name.replace(".", "_")
-                setattr(self, name + '_loc', _near_zero_params(shape))
-                setattr(self, name + '_scale_raw', _init_scale_raw(shape))
-                def dist_fn(name):
-                    return Normal(getattr(self, name + '_loc'), getattr(self, name + '_scale_raw').exp()).to_event(1)
-                self._dist(name, copy.deepcopy(dist_fn))
-
-
-        for param_shape, dist in zip(named_param_shapes.values(), self.forward().dists):
-            assert dist.event_shape == param_shape
+        if cov_type == 'diag':
+            self.scale = torch.nn.Parameter(torch.normal(math.log(0.1), init_std, size=param_shape, device=device))
+            self.dist_fn = lambda: Normal(self.mean, self.scale.exp()).to_event(1)
+        if cov_type == 'full':
+            self.tril_cov = torch.nn.Parameter(torch.diag(torch.ones(param_shape, device=device).uniform_(0.05, 0.15)))
+            self.dist_fn = lambda: torch.distributions.MultivariateNormal(loc=self.loc, scale_tril=torch.tril(self.tril_cov))
 
     def forward(self):
-        return CatDist([dist_fn(name) for name, dist_fn in self._param_dist_funcs.items()])
-
-    def _dist(self, name, dist_get_fn):
-        assert type(name) == str
-        assert callable(dist_get_fn)
-        assert name not in list(self._param_dist_funcs.keys())
-        self._param_dist_funcs[name] = dist_get_fn
+        return self.dist_fn()
 
     def rsample(self, sample_shape=torch.Size()):
         return self.forward().rsample(sample_shape)
@@ -236,28 +229,26 @@ class RandomGPPosterior(torch.nn.Module):
     def log_prob(self, value):
         return self.forward().log_prob(value)
 
+    @property
     def mode(self):
-        modes = []
-        for name, dist_fn in self._param_dist_funcs.items():
-            dist = _get_base_dist(dist_fn(name))
-            if isinstance(dist, Normal):
-                mode = dist.mean
-            elif isinstance(dist, LogNormal):
-                mode = torch.exp(dist.loc - dist.scale ** 2)
-            else:
-                raise NotImplementedError
-            modes.append(mode)
-        return torch.cat(modes, dim=-1)
+        return self.mean
 
-    def stddev_dict(self):
-        with torch.no_grad():
-            return OrderedDict([(name, torch.mean(dist_fn(name).stddev).item()) for name, dist_fn in self._param_dist_funcs.items()])
+    @property
+    def mean(self):
+        return self.forward().mean
 
+    @property
+    def stddev(self):
+        return self.forward().stddev
+
+    @property
     def mean_stddev_dict(self):
+        mean = self.mean
+        stddev = self.stddev
         with torch.no_grad():
             return OrderedDict(
-                [(name,  (torch.mean(dist_fn(name).mean).item(), torch.mean(dist_fn(name).stddev).item()))
-                 for name, dist_fn in self._param_dist_funcs.items()])
+                [(name, (mean[idx_start:idx_end], stddev[idx_start:idx_end])) for name, (idx_start, idx_end) in self.param_idx_ranges.items()])
+
 
 def _get_base_dist(dist):
     if isinstance(dist, Independent):
