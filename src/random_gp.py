@@ -108,7 +108,7 @@ class VectorizedGP(VectorizedModel):
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
-class RandomGP:
+class _RandomGPBase:
 
     def __init__(self, size_in, prior_factor=1.0, weight_prior_std=1.0, bias_prior_std=3.0, **kwargs):
 
@@ -174,6 +174,20 @@ class RandomGP:
     def _log_prob_prior(self, params):
         return self.hyper_prior.log_prob(params)
 
+    def _log_prob_likelihood(self, *args):
+        raise NotImplementedError
+
+    def log_prob(self, *args):
+        raise NotImplementedError
+
+    def parameter_shapes(self):
+        param_shapes_dict = OrderedDict()
+        for name, dist in self._param_dists.items():
+            param_shapes_dict[name] = dist.event_shape
+        return param_shapes_dict
+
+class RandomGP(_RandomGPBase):
+
     def _log_prob_likelihood(self, params, x_data, y_data):
         fn = self.get_forward_fn(params)
         _, mll = fn(x_data, y_data)
@@ -182,11 +196,25 @@ class RandomGP:
     def log_prob(self, params, x_data, y_data):
         return self.prior_factor * self._log_prob_prior(params) + self._log_prob_likelihood(params, x_data, y_data)
 
-    def parameter_shapes(self):
-        param_shapes_dict = OrderedDict()
-        for name, dist in self._param_dists.items():
-            param_shapes_dict[name] = dist.event_shape
-        return param_shapes_dict
+class RandomGPMeta(_RandomGPBase):
+
+    def _log_prob_likelihood(self, params, train_data_tuples):
+        fn = self.get_forward_fn(params)
+
+        num_datasets = len(train_data_tuples)
+        dataset_sizes = torch.tensor([train_x.shape[-2] for train_x, _ in train_data_tuples]).float().to(device)
+        harmonic_mean_dataset_size = 1. / (torch.mean(1. / dataset_sizes))
+        pre_factor = harmonic_mean_dataset_size / (harmonic_mean_dataset_size + num_datasets)
+
+        mlls_normalized = []
+        for i, (x_data, y_data) in enumerate(train_data_tuples):
+            _, mll = fn(x_data, y_data)
+            mlls_normalized.append(mll / dataset_sizes[i])
+        mlls_normalized = torch.stack(mlls_normalized, dim=-1)
+        return pre_factor * torch.sum(mlls_normalized, dim=-1)
+
+    def log_prob(self, params, train_data_tuples):
+        return self.prior_factor * self._log_prob_prior(params) + self._log_prob_likelihood(params, train_data_tuples)
 
 class RandomGPPosterior(torch.nn.Module):
     """
@@ -212,9 +240,9 @@ class RandomGPPosterior(torch.nn.Module):
 
         if cov_type == 'diag':
             self.scale = torch.nn.Parameter(torch.normal(math.log(0.1), init_std, size=param_shape, device=device))
-            self.dist_fn = lambda: Normal(self.mean, self.scale.exp()).to_event(1)
+            self.dist_fn = lambda: Normal(self.loc, self.scale.exp()).to_event(1)
         if cov_type == 'full':
-            self.tril_cov = torch.nn.Parameter(torch.diag(torch.ones(param_shape, device=device).uniform_(0.05, 0.15)))
+            self.tril_cov = torch.nn.Parameter(torch.diag(torch.ones(param_shape, device=device).uniform_(0.05, 0.1)))
             self.dist_fn = lambda: torch.distributions.MultivariateNormal(loc=self.loc, scale_tril=torch.tril(self.tril_cov))
 
     def forward(self):
@@ -240,6 +268,9 @@ class RandomGPPosterior(torch.nn.Module):
     @property
     def stddev(self):
         return self.forward().stddev
+
+    def entropy(self):
+        return self.forward().entropy()
 
     @property
     def mean_stddev_dict(self):
