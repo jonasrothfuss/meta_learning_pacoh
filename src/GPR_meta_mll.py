@@ -79,14 +79,15 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
         self.fitted = False
 
 
-    def meta_fit(self, valid_tuples=None, verbose=True, log_period=500):
+    def meta_fit(self, valid_tuples=None, verbose=True, log_period=500, n_iter=None):
         """
         fits the VI and prior parameters of the  GPC model
 
         Args:
             valid_tuples: list of valid tuples, i.e. [(test_context_x_1, test_context_t_1, test_x_1, test_t_1), ...]
             verbose: (boolean) whether to print training progress
-            log_period (int) number of steps after which to print stats
+            log_period: (int) number of steps after which to print stats
+            n_iter: (int) number of gradient descent iterations
         """
         for task_dict in self.task_dicts: task_dict['model'].train()
         self.likelihood.train()
@@ -97,7 +98,10 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
             t = time.time()
             cum_loss = 0.0
 
-            for itr in range(1, self.num_iter_fit + 1):
+            if n_iter is None:
+                n_iter = self.num_iter_fit
+
+            for itr in range(1, n_iter + 1):
 
                 loss = 0.0
                 self.optimizer.zero_grad()
@@ -140,6 +144,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
 
         for task_dict in self.task_dicts: task_dict['model'].eval()
         self.likelihood.eval()
+        return loss.item()
 
 
     def predict(self, context_x, context_y, test_x, return_density=False):

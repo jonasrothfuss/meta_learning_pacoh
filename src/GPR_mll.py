@@ -1,7 +1,5 @@
-import torch
 import gpytorch
 import time
-import numpy as np
 
 from src.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
 from src.abstract import RegressionModel
@@ -113,7 +111,7 @@ class GPRegressionLearned(RegressionModel):
 
         self.fitted = False
 
-    def fit(self, verbose=True, valid_x=None, valid_t=None, log_period=500):
+    def fit(self, verbose=True, valid_x=None, valid_t=None, log_period=500, n_iter=None):
         """
         fits prior parameters of the  GPC model by maximizing the mll of the training data
 
@@ -122,6 +120,7 @@ class GPRegressionLearned(RegressionModel):
             valid_x: (np.ndarray) validation inputs - shape: (n_sampls, ndim_x)
             valid_y: (np.ndarray) validation targets - shape: (n_sampls, 1)
             log_period: (int) number of steps after which to print stats
+            n_iter: (int) number of gradient descent iterations
         """
         self.model.train()
         self.likelihood.train()
@@ -131,7 +130,10 @@ class GPRegressionLearned(RegressionModel):
         if len(self.parameters) > 0:
             t = time.time()
 
-            for itr in range(1, self.num_iter_fit + 1):
+            if n_iter is None:
+                n_iter = self.num_iter_fit
+
+            for itr in range(1, n_iter + 1):
 
                 self.optimizer.zero_grad()
                 output = self.model(self.train_x_tensor)
@@ -167,6 +169,7 @@ class GPRegressionLearned(RegressionModel):
 
         self.model.eval()
         self.likelihood.eval()
+        return loss.item()
 
     def predict(self, test_x, return_density=False):
         """

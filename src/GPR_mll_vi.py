@@ -58,7 +58,7 @@ class GPRegressionLearnedVI(RegressionModel):
         self.fitted = False
 
 
-    def fit(self, valid_x=None, valid_t=None, verbose=True, log_period=1000):
+    def fit(self, valid_x=None, valid_t=None, verbose=True, log_period=1000, n_iter=None):
         """
        fits the variational hyper-posterior approximation
 
@@ -67,13 +67,17 @@ class GPRegressionLearnedVI(RegressionModel):
             valid_y: (np.ndarray) validation targets - shape: (n_samples, 1)
             verbose: (boolean) whether to print training progress
             log_period: (int) number of steps after which to print stats
+            n_iter: (int) number of gradient descent iterations
         """
 
         assert (valid_x is None and valid_t is None) or (isinstance(valid_x, np.ndarray) and isinstance(valid_x, np.ndarray))
 
         t = time.time()
 
-        for itr in range(1, self.num_iter_fit + 1):
+        if n_iter is None:
+            n_iter = self.num_iter_fit
+
+        for itr in range(1, n_iter + 1):
 
             self.optimizer.zero_grad()
             loss = self.get_neg_elbo(self.train_x, self.train_t)
@@ -85,7 +89,7 @@ class GPRegressionLearnedVI(RegressionModel):
                 duration = time.time() - t
                 t = time.time()
 
-                message = 'Iter %d/%d - Loss: %.3f - Time %.3f sec' % (itr, self.num_iter_fit, loss, duration)
+                message = 'Iter %d/%d - Loss: %.3f - Time %.3f sec' % (itr, self.num_iter_fit, loss.item(), duration)
 
                 # if validation data is provided  -> compute the valid log-likelihood
                 if valid_x is not None:
@@ -95,6 +99,7 @@ class GPRegressionLearnedVI(RegressionModel):
                 self.logger.info(message)
 
         self.fitted = True
+        return loss.item()
 
 
     def predict(self, test_x, n_posterior_samples=100, mode='Bayes', return_density=False):
