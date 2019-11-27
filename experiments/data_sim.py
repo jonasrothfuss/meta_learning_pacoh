@@ -1,7 +1,7 @@
 import mnist
 import numpy as np
 import pandas as pd
-
+from scipy.stats import truncnorm
 import os
 
 
@@ -283,7 +283,7 @@ class SinusoidNonstationaryDataset(MetaDataset):
 
 class GPFunctionsDataset(MetaDataset):
 
-    def __init__(self, noise_std=0.1, lengthscale=1.0, mean=0.0, x_low=-5, x_high=5, random_state=None):
+    def __init__(self, noise_std=0.01, lengthscale=1.0, mean=0.0, x_low=-5, x_high=5, random_state=None):
         self.noise_std, self.lengthscale, self.mean = noise_std, lengthscale, mean
         self.x_low, self.x_high = x_low, x_high
         super().__init__(random_state)
@@ -322,19 +322,70 @@ class GPFunctionsDataset(MetaDataset):
         y = f + self.random_state.normal(scale=self.noise_std, size=f.shape)
         return y
 
+class CauchyDataset(MetaDataset):
+
+    def __init__(self, noise_std=0.05, ndim_x=1, random_state=None):
+        self.noise_std = noise_std
+        self.ndim_x = ndim_x
+        super().__init__(random_state)
+
+    def generate_meta_train_data(self, n_tasks, n_samples):
+        meta_train_tuples = []
+        for i in range(n_tasks):
+            X = truncnorm.rvs(-3, 2, loc=0, scale=2.5, size=(n_samples, self.ndim_x), random_state=self.random_state)
+            Y = self._gp_fun_from_prior(X)
+            meta_train_tuples.append((X, Y))
+        return meta_train_tuples
+
+    def generate_meta_test_data(self, n_tasks, n_samples_context, n_samples_test):
+        assert n_samples_test > 0
+        meta_test_tuples = []
+        for i in range(n_tasks):
+            X = truncnorm.rvs(-3, 2, loc=0, scale=2.5, size=(n_samples_context + n_samples_test, self.ndim_x), random_state=self.random_state)
+            Y = self._gp_fun_from_prior(X)
+            meta_test_tuples.append(
+                (X[:n_samples_context], Y[:n_samples_context], X[n_samples_context:], Y[n_samples_context:]))
+
+        return meta_test_tuples
+
+    def _mean(self, x):
+        loc1 = -1 * np.ones(x.shape[-1])
+        loc2 = 2 * np.ones(x.shape[-1])
+        cauchy1 = 1 / (np.pi * (1 + (np.linalg.norm(x - loc1, axis=-1))**2))
+        cauchy2 = 1 / (np.pi * (1 + (np.linalg.norm(x - loc2, axis=-1))**2))
+        return 6 * cauchy1 + 3 * cauchy2 + 1
+
+    def _gp_fun_from_prior(self, X):
+        assert X.ndim == 2
+
+        n = X.shape[0]
+
+        def kernel(a, b, lengthscale):
+            sqdist = np.sum(a ** 2, 1).reshape(-1, 1) + np.sum(b ** 2, 1) - 2 * np.dot(a, b.T)
+            return np.exp(-.5 * (1 / lengthscale) * sqdist)
+
+        K_ss = kernel(X, X, 0.5)
+        L = np.linalg.cholesky(K_ss + 1e-8 * np.eye(n))
+        f = self._mean(X) + np.dot(L, self.random_state.normal(scale=0.15, size=(n, 1))).flatten()
+        y = f + self.random_state.normal(scale=self.noise_std, size=f.shape)
+        return y.reshape(-1, 1)
+
+
 
 if __name__ == "__main__":
     x = np.linspace(-5, 5, num=200)
 
-    dataset = SinusoidNonstationaryDataset()
+    #dataset = SinusoidNonstationaryDataset()
+
+    dataset = CauchyDataset()
 
 
     from matplotlib import pyplot as plt
 
-    meta_data = dataset.generate_meta_train_data(n_tasks=2, n_samples=200)
+    meta_data = dataset.generate_meta_train_data(n_tasks=4, n_samples=20)
 
     for x, y in meta_data:
         # func = dataset._sample_fun()
         # y = func(x)
-        plt.scatter(x, y)
+        plt.scatter(x[:], y)
     plt.show()
