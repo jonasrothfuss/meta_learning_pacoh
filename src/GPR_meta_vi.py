@@ -16,7 +16,7 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
     def __init__(self, meta_train_data, num_iter_fit=10000, feature_dim=1,
                  prior_factor=0.01, weight_prior_std=0.5, bias_prior_std=3.0,
                  covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 optimizer='Adam', lr=1e-3, lr_scheduler=False, svi_batch_size=10, cov_type='full',
+                 optimizer='Adam', lr=1e-3, lr_decay=1.0, svi_batch_size=10, cov_type='full',
                  task_batch_size=-1, normalize_data=True, random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
@@ -65,7 +65,7 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
         self._setup_model_inference(mean_module, covar_module, mean_nn_layers, kernel_nn_layers,
                                     cov_type)
 
-        self._setup_optimizer(optimizer, lr, lr_scheduler)
+        self._setup_optimizer(optimizer, lr, lr_decay)
 
         # Setup components that are different across tasks
         self.task_dicts = []
@@ -106,7 +106,7 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
             loss = self.get_neg_elbo(task_dict_batch)
             loss.backward()
             self.optimizer.step()
-            self.lr_scheduler.step(loss)
+            self.lr_scheduler.step()
 
             # print training stats stats
             if itr == 1 or itr % log_period == 0:
@@ -297,7 +297,7 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
         self.get_pred_dist = get_pred_dist
         self.get_pred_dist_map = get_pred_dist_map
 
-    def _setup_optimizer(self, optimizer, lr, lr_scheduler):
+    def _setup_optimizer(self, optimizer, lr, lr_decay):
         if optimizer == 'Adam':
             self.optimizer = torch.optim.Adam(self.posterior.parameters(), lr=lr)
         elif optimizer == 'SGD':
@@ -305,9 +305,8 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
         else:
             raise NotImplementedError('Optimizer must be Adam or SGD')
 
-        if lr_scheduler:
-            self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min',
-                                                                           factor=0.2, patience=100, threshold=1e-3)
+        if lr_decay < 1.0:
+            self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 1000, gamma=lr_decay)
         else:
             self.lr_scheduler = DummyLRScheduler()
 

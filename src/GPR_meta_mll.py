@@ -13,7 +13,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
 
     def __init__(self, meta_train_data, learning_mode='both', lr_params=1e-3, weight_decay=0.0, feature_dim=2,
                  num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 task_batch_size=5, normalize_data=True, optimizer='Adam', lr_scheduler=False, random_seed=None):
+                 task_batch_size=5, normalize_data=True, optimizer='Adam', lr_decay=1.0, random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
         neural network mean and covariance functions
@@ -74,7 +74,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
             self.task_dicts.append(task_dict)
 
         # c) prepare inference
-        self._setup_optimizer(optimizer, lr_params, lr_scheduler)
+        self._setup_optimizer(optimizer, lr_params, lr_decay)
 
         self.fitted = False
 
@@ -114,7 +114,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
 
                 loss.backward()
                 self.optimizer.step()
-                self.lr_scheduler.step(loss)
+                self.lr_scheduler.step()
 
                 cum_loss += loss
 
@@ -294,7 +294,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
         if learning_mode in ["learn_mean", "both"] and self.mean_module is not None:
             self.shared_parameters.append({'params': self.mean_module.hyperparameters(), 'lr': self.lr_params})
 
-    def _setup_optimizer(self, optimizer, lr, lr_scheduler):
+    def _setup_optimizer(self, optimizer, lr, lr_decay):
         if optimizer == 'Adam':
             self.optimizer = torch.optim.AdamW(self.shared_parameters, lr=lr)
         elif optimizer == 'SGD':
@@ -302,8 +302,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
         else:
             raise NotImplementedError('Optimizer must be Adam or SGD')
 
-        if lr_scheduler:
-            self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min',
-                                                                           factor=0.2, patience=100, threshold=1e-3)
+        if lr_decay < 1.0:
+            self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 1000, gamma=lr_decay)
         else:
             self.lr_scheduler = DummyLRScheduler()
