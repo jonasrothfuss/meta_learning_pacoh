@@ -214,20 +214,25 @@ if __name__ == "__main__":
     """ 1) Generate some training data from GP prior """
     from experiments.data_sim import GPFunctionsDataset
 
-    data_sim = GPFunctionsDataset(random_state=np.random.RandomState(26))
-    meta_train_data = data_sim.generate_meta_train_data(n_tasks=1, n_samples=200)
+    data_sim = GPFunctionsDataset(random_state=np.random.RandomState(35))
+    meta_train_data = data_sim.generate_meta_test_data(n_tasks=1, n_samples_context=40, n_samples_test=150)
 
-    train_x = meta_train_data[0][0][:50]
-    train_y = meta_train_data[0][1][:50]
-    test_x = meta_train_data[0][0][50:]
-    test_y = meta_train_data[0][1][50:]
+    train_x = meta_train_data[0][0]
+    train_y = meta_train_data[0][1]
+    test_x = meta_train_data[0][2]
+    test_y = meta_train_data[0][3]
+
+    from matplotlib import pyplot as plt
+    plt.scatter(train_x, train_y)
+    plt.show()
+
 
     """ 2) train model """
-
-    for prior_factor in [1.0, 0.01, 0.0001]:
-        gpr = GPRegressionLearnedSVGD(train_x, train_y, lr=2e-3, prior_factor=prior_factor, covar_module='SE', mean_module='NN',
-                                      num_particles=10, num_iter_fit=5000, mean_nn_layers=(16, 16),
-                                      kernel_nn_layers=(16, 16), normalize_data=True)
+    prior_factor = 0.01
+    for bandwidth in [1, 0.5, 0.1, 0.01]:
+        gpr = GPRegressionLearnedSVGD(train_x, train_y, lr=2e-3, prior_factor=prior_factor, covar_module='SE', mean_module='constant',
+                                      num_particles=20, num_iter_fit=5000, mean_nn_layers=(16, 16), kernel='RBF',
+                                      kernel_nn_layers=(16, 16), normalize_data=True, bandwidth=bandwidth)
 
         gpr.fit(valid_x=test_x, valid_t=test_y, log_period=500)
 
@@ -241,5 +246,5 @@ if __name__ == "__main__":
 
         plt.plot(x_plot, y_plot)
         plt.fill_between(x_plot.flatten(), y_plot-y_std, y_plot+y_std, alpha=.5)
-        plt.title("prior_factor=%.4f"%prior_factor)
+        plt.title("prior_factor=%.4f, bandwidth=%.4f"%(prior_factor, bandwidth))
         plt.show()

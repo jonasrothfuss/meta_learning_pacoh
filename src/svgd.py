@@ -41,17 +41,18 @@ class RBF_Kernel(torch.nn.Module):
         super().__init__()
         self.bandwidth = bandwidth
 
-    def forward(self, X, Y):
-        dnorm2 = norm_sq(X, Y)
-
+    def _bandwidth(self, norm_sq):
         # Apply the median heuristic (PyTorch does not give true median)
         if self.bandwidth is None:
-            np_dnorm2 = dnorm2.detach().cpu().numpy()
-            h = np.median(np_dnorm2) / (2 * np.log(X.size(0) + 1))
-            bandwidth = np.sqrt(h).item()
+            np_dnorm2 = norm_sq.detach().cpu().numpy()
+            h = np.median(np_dnorm2) / (2 * np.log(np_dnorm2.size[0] + 1))
+            return np.sqrt(h).item()
         else:
-            bandwidth = self.bandwidth
+            return self.bandwidth
 
+    def forward(self, X, Y):
+        dnorm2 = norm_sq(X, Y)
+        bandwidth = self._bandwidth(dnorm2)
         gamma = 1.0 / (1e-8 + 2 * bandwidth ** 2)
         K_XY = (-gamma * dnorm2).exp()
 
@@ -73,26 +74,27 @@ class IMQSteinKernel(torch.nn.Module):
         assert beta < 0.0, "beta must be negative."
         self.alpha = alpha
         self.beta = beta
-        self.bandwidth_factor = bandwidth
+        self.bandwidth = bandwidth
 
     def _bandwidth(self, norm_sq):
         """
         Compute the bandwidth along each dimension using the median pairwise squared distance between particles.
         """
-        num_particles = norm_sq.size(0)
-        index = torch.arange(num_particles)
-        norm_sq = norm_sq[index > index.unsqueeze(-1), ...]
-        median = norm_sq.median(dim=0)[0]
-        if self.bandwidth_factor is not None:
-            median = self.bandwidth_factor * median
-        assert median.shape == norm_sq.shape[-1:]
-        return median / math.log(num_particles + 1)
+        if self.bandwidth is None:
+            num_particles = norm_sq.size(0)
+            index = torch.arange(num_particles)
+            norm_sq = norm_sq[index > index.unsqueeze(-1), ...]
+            median = norm_sq.median(dim=0)[0]
+            assert median.shape == norm_sq.shape[-1:]
+            return median / math.log(num_particles + 1)
+        else:
+            return self.bandwidth
 
     def forward(self, X, Y):
         norm_sq = (X.unsqueeze(0) - Y.unsqueeze(1))**2  # N N D
         assert norm_sq.dim() == 3
-        h = self._bandwidth(norm_sq)  # D
-        base_term = self.alpha + torch.sum(norm_sq / h, dim=-1)
+        bandwidth = self._bandwidth(norm_sq)  # D
+        base_term = self.alpha + torch.sum(norm_sq / bandwidth, dim=-1)
         log_kernel = self.beta * torch.log(base_term)  # N N D
         return log_kernel.exp()
 
