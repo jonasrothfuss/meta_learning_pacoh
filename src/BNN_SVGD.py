@@ -200,10 +200,10 @@ class BayesianNeuralNetworkSVGD(RegressionModel):
                     pred_std = pred_dist.stddev.cpu().numpy()
                     return pred_mean, pred_std
 
-            elif mode == 'pred':
+            elif mode == 'reg':
                 pred_mean, pred_std = torch.mean(preds, dim=0), torch.std(preds, dim=0)
-                pred_mean, pred_std = self._unnormalize_pred(pred_mean, pred_mean)
-                return pred_mean.cpu().numpy(), pred_mean.cpu().numpy()
+                pred_mean, pred_std = self._unnormalize_pred(pred_mean, pred_std)
+                return pred_mean.cpu().numpy(), pred_std.cpu().numpy()
             else:
                 raise NotImplementedError
 
