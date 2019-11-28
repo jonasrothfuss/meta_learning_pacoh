@@ -36,7 +36,7 @@ flags.DEFINE_integer('n_iter_fit', default=100000, help='number of gradient step
 flags.DEFINE_string('optimizer', default='Adam', help='type of optimizer to use - either \'SGD\' or \'ADAM\'')
 flags.DEFINE_integer('svi_batch_size', default=10, help='number of posterior samples to estimate grads')
 flags.DEFINE_integer('task_batch_size', -1, help='batch size for meta training, i.e. number of tasks for computing grads')
-flags.DEFINE_boolean('lr_scheduler', False, help='whether to use a learning rate scheduler')
+flags.DEFINE_boolean('lr_decay', 0.98, help='whether to use a learning rate scheduler')
 
 # Configuration w.r.t. data
 flags.DEFINE_boolean('normalize_data', default=True, help='whether to normalize the data')
@@ -87,7 +87,7 @@ def main(argv):
                                         random_seed=FLAGS.seed,
                                         optimizer=FLAGS.optimizer,
                                         lr=FLAGS.lr,
-                                        lr_scheduler=FLAGS.lr_scheduler,
+                                        lr_decay=FLAGS.lr_decay,
                                         num_iter_fit=FLAGS.n_iter_fit,
                                         svi_batch_size=FLAGS.svi_batch_size,
                                         normalize_data=FLAGS.normalize_data,

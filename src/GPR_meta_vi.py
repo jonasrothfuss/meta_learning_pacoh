@@ -16,7 +16,7 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
     def __init__(self, meta_train_data, num_iter_fit=10000, feature_dim=1,
                  prior_factor=0.01, weight_prior_std=0.5, bias_prior_std=3.0,
                  covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 optimizer='Adam', lr=1e-3, lr_decay=1.0, svi_batch_size=10, cov_type='full',
+                 optimizer='Adam', lr=1e-3, lr_decay=1.0, svi_batch_size=10, cov_type='diag',
                  task_batch_size=-1, normalize_data=True, random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with

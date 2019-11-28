@@ -35,7 +35,6 @@ class TestGPR_mll_vi(unittest.TestCase):
     def test_random_seed_consistency(self):
         for covar_module in ['NN', 'SE']:
             for mean_module in ['NN', 'constant']:
-                pyro.clear_param_store()
                 gpr_model_1 = GPRegressionLearnedVI(self.x_train, self.y_train_two, num_iter_fit=3,
                                                     mean_module=mean_module, covar_module=covar_module, random_seed=22)
 
@@ -55,7 +54,8 @@ class TestGPR_mll_vi(unittest.TestCase):
 
         for mean_module, covar_module in [('constant', 'SE'), ('NN', 'NN')]:
             gpr_model = GPRegressionLearnedVI(self.x_train, self.y_train_sin, num_iter_fit=100, prior_factor=0.01,
-                                              mean_module=mean_module, covar_module=covar_module, random_seed=25)
+                                              mean_module=mean_module, covar_module=covar_module, random_seed=25,
+                                              mean_nn_layers=(8, 8), kernel_nn_layers=(8, 8))
 
             gpr_model.fit(valid_x=self.x_train, valid_t=self.y_train_sin)
             ll, rmse = gpr_model.eval(self.x_train, self.y_train_sin)
@@ -63,8 +63,8 @@ class TestGPR_mll_vi(unittest.TestCase):
             pyro.clear_param_store()
 
             gpr_model_long_train = GPRegressionLearnedVI(self.x_train, self.y_train_sin, prior_factor=0.01,
-                                                         num_iter_fit=10000, mean_module=mean_module, covar_module=covar_module,
-                                                         random_seed=25)
+                                                         num_iter_fit=2000, mean_module=mean_module, covar_module=covar_module,
+                                                         random_seed=25, mean_nn_layers=(8, 8), kernel_nn_layers=(8, 8))
             gpr_model_long_train.fit(valid_x=self.x_train, valid_t=self.y_train_sin)
             ll_long, rmse_long = gpr_model_long_train.eval(self.x_train, self.y_train_sin)
             pyro.clear_param_store()
@@ -73,8 +73,6 @@ class TestGPR_mll_vi(unittest.TestCase):
             print(ll_long, rmse_long)
             self.assertGreater(ll_long, ll)
             self.assertLess(rmse_long, rmse)
-
-
 
 class TestGPR_mll_meta_vi(unittest.TestCase):
 
@@ -127,19 +125,21 @@ class TestGPR_mll_meta_vi(unittest.TestCase):
     def test_basic_learning(self):
         for mean_module, covar_module in [('constant', 'SE'), ('NN', 'NN')]:
             pyro.clear_param_store()
-            gp_meta_1 = GPRegressionMetaLearnedVI(self.train_data_tuples, num_iter_fit=5, prior_factor=0.01,
-                                                  covar_module=covar_module, mean_module=mean_module, random_seed=23)
+            gp_meta_1 = GPRegressionMetaLearnedVI(self.train_data_tuples, num_iter_fit=2, prior_factor=0.001,
+                                                  covar_module=covar_module, mean_module=mean_module, cov_type='diag',
+                                                  mean_nn_layers=(8, 8), kernel_nn_layers=(8, 8), random_seed=23)
 
             gp_meta_1.meta_fit(valid_tuples=self.test_data_tuples)
             ll1, rmse1 = gp_meta_1.eval_datasets(self.test_data_tuples)
-            ll1_map, rmse1_map = gp_meta_1.eval_datasets(self.test_data_tuples, mode='MAP')
+            ll1_map, rmse1_map = gp_meta_1.eval_datasets(self.test_data_tuples, mode='Bayes')
 
-            gp_meta_2 = GPRegressionMetaLearnedVI(self.train_data_tuples, num_iter_fit=50000, prior_factor=0.001,
-                                                  covar_module=covar_module, mean_module=mean_module, random_seed=23)
+            gp_meta_2 = GPRegressionMetaLearnedVI(self.train_data_tuples, num_iter_fit=5000, prior_factor=0.001,
+                                                  covar_module=covar_module, mean_module=mean_module, cov_type='diag',
+                                                  mean_nn_layers=(8, 8), kernel_nn_layers=(8, 8), random_seed=23)
 
-            gp_meta_2.meta_fit(valid_tuples=self.test_data_tuples)
+            gp_meta_2.meta_fit(valid_tuples=self.test_data_tuples, log_period=1000)
             ll2, rmse2 = gp_meta_2.eval_datasets(self.test_data_tuples)
-            ll2_map, rmse2_map = gp_meta_2.eval_datasets(self.test_data_tuples, mode='MAP')
+            ll2_map, rmse2_map = gp_meta_2.eval_datasets(self.test_data_tuples, mode='Bayes')
 
 
             self.assertGreater(ll2, ll1)
