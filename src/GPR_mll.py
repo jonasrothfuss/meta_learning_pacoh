@@ -1,5 +1,6 @@
 import gpytorch
 import time
+import torch
 
 from src.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
 from src.abstract import RegressionModel

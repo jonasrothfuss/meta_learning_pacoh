@@ -9,10 +9,10 @@ class SVGD:
     self.K = kernel
     self.optim = optimizer
 
-  def phi(self, X, x_data, y_data):
+  def phi(self, X, *data):
     X = X.detach().requires_grad_(True)
 
-    log_prob = self.P.log_prob(X, x_data, y_data)
+    log_prob = self.P.log_prob(X, *data)
     score_func = torch.autograd.grad(log_prob.sum(), X)[0]
 
     K_XX = self.K(X, X.detach())
@@ -22,9 +22,9 @@ class SVGD:
 
     return phi
 
-  def step(self, particles, x_data, y_data):
+  def step(self, particles, *data):
     self.optim.zero_grad()
-    particles.grad = -self.phi(particles, x_data, y_data)
+    particles.grad = -self.phi(particles, *data)
     self.optim.step()
 
 
@@ -45,7 +45,7 @@ class RBF_Kernel(torch.nn.Module):
         # Apply the median heuristic (PyTorch does not give true median)
         if self.bandwidth is None:
             np_dnorm2 = norm_sq.detach().cpu().numpy()
-            h = np.median(np_dnorm2) / (2 * np.log(np_dnorm2.size[0] + 1))
+            h = np.median(np_dnorm2) / (2 * np.log(np_dnorm2.shape[0] + 1))
             return np.sqrt(h).item()
         else:
             return self.bandwidth

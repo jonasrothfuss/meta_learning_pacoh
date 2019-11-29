@@ -24,9 +24,6 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
 
         Args:
             meta_train_data: list of tuples of ndarrays[(train_x_1, train_t_1), ..., (train_x_n, train_t_n)]
-            learning_mode: (str) specifying which of the GP prior parameters to optimize. Either one of
-                    ['learned_mean', 'learned_kernel', 'both', 'vanilla']
-            lr: (float) learning rate for prior parameters
             num_iter_fit: (int) number of gradient steps for fitting the parameters
             prior_factor: (float) weighting of the hyper-prior (--> meta-regularization parameter)
             feature_dim: (int) output dimensionality of NN feature map for kernel function
@@ -37,11 +34,12 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
             mean_nn_layers: (tuple) hidden layer sizes of mean NN
             kernel_nn_layers: (tuple) hidden layer sizes of kernel NN
             optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
+            lr: (float) learning rate for prior parameters
+            lr_decay: (float) lr rate decay multiplier applied after every 1000 steps
             kernel (std): SVGD kernel, either 'RBF' or 'IMQ'
             bandwidth (float): bandwidth of kernel, if None the bandwidth is chosen via heuristic
             num_particles: (int) number particles to approximate the hyper-posterior
             normalize_data: (bool) whether the data should be normalized
-            lr_scheduler: (str) whether to use a lr scheduler
             random_seed: (int) seed for pytorch
         """
         super().__init__(normalize_data, random_seed)
@@ -332,15 +330,6 @@ if __name__ == "__main__":
 
     """ 2) Classical mean learning based on mll """
 
-    from src.GPR_meta_mll import GPRegressionMetaLearned
-
-    # print(' ---- GPR mll meta-learning ---- ')
-    #
-    # gp_model = GPRegressionMetaLearned(meta_train_data, num_iter_fit=10000, covar_module='SE', mean_module='NN', mean_nn_layers=NN_LAYERS,
-    #                                      kernel_nn_layers=NN_LAYERS)
-    #
-    # gp_model.meta_fit(valid_tuples=meta_test_data, log_period=1000)
-
     print('\n ---- GPR VI meta-learning ---- ')
 
     torch.set_num_threads(2)
@@ -350,7 +339,6 @@ if __name__ == "__main__":
                                              covar_module='NN', mean_module='NN', mean_nn_layers=NN_LAYERS, kernel_nn_layers=NN_LAYERS, cov_type='diag')
 
         gp_model.meta_fit(valid_tuples=meta_test_data, log_period=100)
-
 
         # x_test = np.linspace(-5, 5, num=150)
         # x_context, t_context, _, _ = meta_test_data[0]

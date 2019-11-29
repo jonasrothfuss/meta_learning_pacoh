@@ -4,17 +4,17 @@ import numpy as np
 
 from src.models import AffineTransformedDistribution, EqualWeightedMixtureDist
 from src.random_gp import RandomGP
-from src.util import _handle_input_dimensionality
+from src.util import _handle_input_dimensionality, DummyLRScheduler
 from src.svgd import SVGD, RBF_Kernel, IMQSteinKernel
 from src.abstract import RegressionModel
 from config import device
 
 class GPRegressionLearnedSVGD(RegressionModel):
 
-    def __init__(self, train_x, train_t, lr=1e-3, num_iter_fit=10000, prior_factor=0.01, feature_dim=1,
+    def __init__(self, train_x, train_t, num_iter_fit=10000, prior_factor=0.01, feature_dim=1,
                  weight_prior_std=1.0, bias_prior_std=3.0,
                  covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 optimizer='Adam', kernel='RBF', bandwidth=None, num_particles=10,
+                 optimizer='Adam', lr=1e-3, lr_decay=1e-3, kernel='RBF', bandwidth=None, num_particles=10,
                  normalize_data=True, random_seed=None):
         """
         Hierarchical bayesian GP Regression with SVGD hyper-posterior
@@ -22,7 +22,6 @@ class GPRegressionLearnedSVGD(RegressionModel):
         Args:
             train_x: (ndarray) train inputs - shape: (n_sampls, ndim_x)
             train_t: (ndarray) train targets - shape: (n_sampls, 1)
-            lr: (float) learning rate for prior parameters
             num_iter_fit: (int) number of gradient steps for fitting the parameters
             prior_factor: (float) weighting of the hyper-prior (--> meta-regularization parameter)
             feature_dim: (int) output dimensionality of NN feature map for kernel function
@@ -33,6 +32,8 @@ class GPRegressionLearnedSVGD(RegressionModel):
             mean_nn_layers: (tuple) hidden layer sizes of mean NN
             kernel_nn_layers: (tuple) hidden layer sizes of kernel NN
             optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
+            lr: (float) learning rate for prior parameters
+            lr_decay: (float) lr rate decay multiplier applied after every 1000 steps
             kernel (std): SVGD kernel, either 'RBF' or 'IMQ'
             bandwidth (float): bandwidth of kernel, if None the bandwidth is chosen via heuristic
             num_particles: (int) number particles to approximate the hyper-posterior
@@ -54,7 +55,7 @@ class GPRegressionLearnedSVGD(RegressionModel):
 
         """ --- Setup model & inference --- """
         self._setup_model_inference(mean_module, covar_module, mean_nn_layers, kernel_nn_layers,
-                                    kernel, bandwidth, optimizer, lr)
+                                    kernel, bandwidth, optimizer, lr, lr_decay)
 
         self.fitted = False
 
@@ -77,6 +78,7 @@ class GPRegressionLearnedSVGD(RegressionModel):
         for itr in range(1, self.num_iter_fit + 1):
 
             self.svgd_step(self.train_x, self.train_t)
+            self.lr_scheduler.step()
 
             # print training stats stats
             if verbose and (itr == 1 or itr % log_period == 0):
@@ -153,7 +155,7 @@ class GPRegressionLearnedSVGD(RegressionModel):
 
 
     def _setup_model_inference(self, mean_module_str, covar_module_str, mean_nn_layers, kernel_nn_layers,
-                               kernel, bandwidth, optimizer, lr):
+                               kernel, bandwidth, optimizer, lr, lr_decay):
         assert mean_module_str in ['NN', 'constant']
         assert covar_module_str in ['NN', 'SE']
 
@@ -177,12 +179,7 @@ class GPRegressionLearnedSVGD(RegressionModel):
 
         # setup inference procedure
 
-        if optimizer == 'Adam':
-            self.optimizer = torch.optim.Adam([self.particles], lr=lr)
-        elif optimizer == 'SGD':
-            self.optimizer = torch.optim.SGD([self.particles], lr=lr)
-        else:
-            raise NotImplementedError('Optimizer must be Adam or SGD')
+        self._setup_optimizer(optimizer, lr, lr_decay)
 
         self.svgd = SVGD(self.random_gp, kernel, optimizer=self.optimizer)
 
@@ -208,6 +205,21 @@ class GPRegressionLearnedSVGD(RegressionModel):
         self.svgd_step = svgd_step
         self.get_pred_dist = get_pred_dist
 
+    def _setup_optimizer(self, optimizer, lr, lr_decay):
+        assert hasattr(self, 'particles'), "SVGD must be initialized before setting up optimizer"
+
+        if optimizer == 'Adam':
+            self.optimizer = torch.optim.Adam([self.particles], lr=lr)
+        elif optimizer == 'SGD':
+            self.optimizer = torch.optim.SGD([self.particles], lr=lr)
+        else:
+            raise NotImplementedError('Optimizer must be Adam or SGD')
+
+        if lr_decay < 1.0:
+            self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 1000, gamma=lr_decay)
+        else:
+            self.lr_scheduler = DummyLRScheduler()
+
 
 if __name__ == "__main__":
 
@@ -229,7 +241,7 @@ if __name__ == "__main__":
 
     """ 2) train model """
     prior_factor = 0.01
-    for bandwidth in [1, 0.5, 0.1, 0.01]:
+    for bandwidth in [0.8, 0.5, 0.1, 0.01]:
         gpr = GPRegressionLearnedSVGD(train_x, train_y, lr=2e-3, prior_factor=prior_factor, covar_module='SE', mean_module='constant',
                                       num_particles=20, num_iter_fit=5000, mean_nn_layers=(16, 16), kernel='RBF',
                                       kernel_nn_layers=(16, 16), normalize_data=True, bandwidth=bandwidth)
