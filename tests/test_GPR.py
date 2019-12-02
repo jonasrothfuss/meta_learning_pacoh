@@ -231,7 +231,7 @@ class TestGPR_mll_meta(unittest.TestCase):
                                           mean_module='NN', weight_decay=0.0)
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
-        test_ll_meta_2, test_rmse_meta_2 = gp_meta.eval_datasets(self.test_data_tuples)
+        test_ll_meta_2, test_rmse_meta_2, _ = gp_meta.eval_datasets(self.test_data_tuples)
         print('Test log-likelihood meta (2 datasets):', test_ll_meta_2)
 
         # meta-learning with 10 datasets
@@ -240,7 +240,7 @@ class TestGPR_mll_meta(unittest.TestCase):
                                           mean_module='NN', weight_decay=0.0)
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
-        test_ll_meta_10, test_rmse_meta_10 = gp_meta.eval_datasets(self.test_data_tuples)
+        test_ll_meta_10, test_rmse_meta_10, _ = gp_meta.eval_datasets(self.test_data_tuples)
         print('Test log-likelihood meta (10 datasets):', test_ll_meta_10)
 
 
@@ -260,7 +260,7 @@ class TestGPR_mll_meta(unittest.TestCase):
 
         gp_meta.meta_fit(valid_tuples=self.test_data_tuples)
 
-        test_ll_meta, test_rmse_meta = gp_meta.eval_datasets(self.test_data_tuples)
+        test_ll_meta, test_rmse_meta, _ = gp_meta.eval_datasets(self.test_data_tuples)
         print('Test log-likelihood meta:', test_ll_meta)
 
         def fit_eval_gpr(x_context, t_context, x_test, t_test):

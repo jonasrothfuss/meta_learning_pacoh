@@ -71,6 +71,7 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
         for train_x, train_y in meta_train_data:
             task_dict = {}
 
+            # a) prepare data
             x_tensor, y_tensor, task_dict = self._prepare_data_per_task(train_x, train_y, stats_dict=task_dict)
             task_dict['train_x'], task_dict['train_y'] = x_tensor, y_tensor
             self.task_dicts.append(task_dict)
@@ -115,8 +116,8 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
 
                 # if validation data is provided  -> compute the valid log-likelihood
                 if valid_tuples is not None:
-                    valid_ll, valid_rmse = self.eval_datasets(valid_tuples)
-                    message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f' % (np.mean(valid_ll), np.mean(valid_rmse))
+                    valid_ll, valid_rmse, calibr_err = self.eval_datasets(valid_tuples)
+                    message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f - Calib-Err %.3f' % (valid_ll, valid_rmse, calibr_err)
 
                 if verbose:
                     self.logger.info(message)
@@ -169,49 +170,6 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
                 pred_mean = pred_dist.mean.cpu().numpy()
                 pred_std = pred_dist.stddev.cpu().numpy()
                 return pred_mean, pred_std
-
-    def eval(self, context_x, context_y, test_x, test_t, n_posterior_samples=100, mode='Bayes'):
-        """
-              Computes the average test log likelihood and the rmse on test data
-
-              Args:
-                  context_x: (ndarray) context input data for which to compute the posterior
-                  context_y: (ndarray) context targets for which to compute the posterior
-                  test_x: (ndarray) test input data of shape (n_samples, ndim_x)
-                  test_t: (ndarray) test target data of shape (n_samples, 1)
-
-              Returns: (avg_log_likelihood, rmse)
-
-              """
-
-        context_x, context_y = _handle_input_dimensionality(context_x, context_y)
-        test_x, test_t = _handle_input_dimensionality(test_x, test_t)
-        test_t_tensor = torch.from_numpy(test_t).float().flatten().to(device)
-
-        with torch.no_grad():
-            pred_dist = self.predict(context_x, context_y, test_x, n_posterior_samples=n_posterior_samples,
-                                     mode=mode, return_density=True)
-            avg_log_likelihood = pred_dist.log_prob(test_t_tensor) / test_t_tensor.shape[0]
-            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt()
-
-            return avg_log_likelihood.cpu().item(), rmse.cpu().item()
-
-    def eval_datasets(self, test_tuples, **kwargs):
-        """
-        Computes the average test log likelihood and the rmse over multiple test datasets
-
-        Args:
-            test_tuples: list of test set tuples, i.e. [(test_context_x_1, test_context_y_1, test_x_1, test_y_1), ...]
-
-        Returns: (avg_log_likelihood, rmse)
-
-        """
-
-        assert (all([len(valid_tuple) == 4 for valid_tuple in test_tuples]))
-
-        ll_list, rmse_list = list(zip(*[self.eval(*test_data_tuple, **kwargs) for test_data_tuple in test_tuples]))
-
-        return np.mean(ll_list), np.mean(rmse_list)
 
     def state_dict(self):
         state_dict = {
@@ -308,6 +266,12 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
         else:
             self.lr_scheduler = DummyLRScheduler()
 
+    def _vectorize_pred_dist(self, pred_dist):
+        multiv_normal_batched = pred_dist.dists
+        normal_batched = torch.distributions.Normal(multiv_normal_batched.mean, multiv_normal_batched.stddev)
+        return EqualWeightedMixtureDist(normal_batched, batched=True, num_dists=multiv_normal_batched.batch_shape[0])
+
+
 if __name__ == "__main__":
     """ 1) Generate some training data from GP prior """
     from experiments.data_sim import GPFunctionsDataset
@@ -335,17 +299,22 @@ if __name__ == "__main__":
     torch.set_num_threads(2)
 
     for prior_factor in [1e-3 / 40.]:
-        gp_model = GPRegressionMetaLearnedVI(meta_train_data, num_iter_fit=10000, prior_factor=prior_factor, svi_batch_size=10, task_batch_size=2,
-                                             covar_module='NN', mean_module='NN', mean_nn_layers=NN_LAYERS, kernel_nn_layers=NN_LAYERS, cov_type='diag')
+        gp_model = GPRegressionMetaLearnedVI(meta_train_data, num_iter_fit=2000, prior_factor=prior_factor, svi_batch_size=10, task_batch_size=2,
+                                             covar_module='SE', mean_module='NN', mean_nn_layers=NN_LAYERS, kernel_nn_layers=NN_LAYERS, cov_type='diag')
 
-        gp_model.meta_fit(valid_tuples=meta_test_data, log_period=100)
 
-        # x_test = np.linspace(-5, 5, num=150)
-        # x_context, t_context, _, _ = meta_test_data[0]
-        # pred_mean, pred_std = gp_model.predict(x_context, t_context, x_test)
-        #
-        # plt.scatter(x_context, t_context)
-        # plt.plot(x_test, pred_mean)
-        # plt.fill_between(x_test, pred_mean-pred_std, pred_mean+pred_std, alpha=0.2)
-        # plt.title('[test_meta_vi.py] GPR meta VI (prior-factor =  %i)'%prior_factor)
-        # plt.show()
+        for i in range(10):
+            itrs = 0
+            gp_model.meta_fit(valid_tuples=meta_test_data, log_period=500, n_iter=2000)
+            itrs += 2000
+
+            x_test = np.linspace(-5, 5, num=150)
+            x_context, t_context, _, _ = meta_test_data[0]
+            pred_mean, pred_std = gp_model.predict(x_context, t_context, x_test)
+            ucb, lcb = gp_model.confidence_intervals(x_context, t_context, x_test, confidence=0.9)
+
+            plt.scatter(x_context, t_context)
+            plt.plot(x_test, pred_mean)
+            plt.fill_between(x_test, lcb, ucb, alpha=0.2)
+            plt.title('GPR meta VI (prior-factor =  %.4f) itrs = %i' % (prior_factor, itrs))
+            plt.show()

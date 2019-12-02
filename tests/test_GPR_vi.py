@@ -130,16 +130,16 @@ class TestGPR_mll_meta_vi(unittest.TestCase):
                                                   mean_nn_layers=(8, 8), kernel_nn_layers=(8, 8), random_seed=23)
 
             gp_meta_1.meta_fit(valid_tuples=self.test_data_tuples)
-            ll1, rmse1 = gp_meta_1.eval_datasets(self.test_data_tuples)
-            ll1_map, rmse1_map = gp_meta_1.eval_datasets(self.test_data_tuples, mode='Bayes')
+            ll1, rmse1, _ = gp_meta_1.eval_datasets(self.test_data_tuples)
+            ll1_map, rmse1_map, _ = gp_meta_1.eval_datasets(self.test_data_tuples, mode='Bayes')
 
             gp_meta_2 = GPRegressionMetaLearnedVI(self.train_data_tuples, num_iter_fit=5000, prior_factor=0.001,
                                                   covar_module=covar_module, mean_module=mean_module, cov_type='diag',
                                                   mean_nn_layers=(8, 8), kernel_nn_layers=(8, 8), random_seed=23)
 
             gp_meta_2.meta_fit(valid_tuples=self.test_data_tuples, log_period=1000)
-            ll2, rmse2 = gp_meta_2.eval_datasets(self.test_data_tuples)
-            ll2_map, rmse2_map = gp_meta_2.eval_datasets(self.test_data_tuples, mode='Bayes')
+            ll2, rmse2, _ = gp_meta_2.eval_datasets(self.test_data_tuples)
+            ll2_map, rmse2_map, _ = gp_meta_2.eval_datasets(self.test_data_tuples, mode='Bayes')
 
 
             self.assertGreater(ll2, ll1)

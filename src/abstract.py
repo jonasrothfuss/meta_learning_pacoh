@@ -86,6 +86,76 @@ class RegressionModelMetaLearned:
         else:
             self.rds_numpy = np.random
 
+    def predict(self, context_x, context_y, test_x, **kwargs):
+        raise NotImplementedError
+
+    def eval(self, context_x, context_y, test_x, test_t, **kwargs):
+        """
+        Computes the average test log likelihood, rmse and calibration error n test data
+
+        Args:
+            context_x: (ndarray) context input data for which to compute the posterior
+            context_y: (ndarray) context targets for which to compute the posterior
+            test_x: (ndarray) test input data of shape (n_samples, ndim_x)
+            test_t: (ndarray) test target data of shape (n_samples, 1)
+
+        Returns: (avg_log_likelihood, rmse, calibr_error)
+
+        """
+
+        context_x, context_y = _handle_input_dimensionality(context_x, context_y)
+        test_x, test_t = _handle_input_dimensionality(test_x, test_t)
+        test_t_tensor = torch.from_numpy(test_t).float().flatten().to(device)
+
+        with torch.no_grad():
+            pred_dist = self.predict(context_x, context_y, test_x, return_density=True, **kwargs)
+            avg_log_likelihood = pred_dist.log_prob(test_t_tensor) / test_t_tensor.shape[0]
+            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt()
+
+            pred_dist_vect = self._vectorize_pred_dist(pred_dist)
+            calibr_error = self._calib_error(pred_dist_vect, test_t_tensor)
+
+            return avg_log_likelihood.cpu().item(), rmse.cpu().item(), calibr_error.cpu().item()
+
+    def eval_datasets(self, test_tuples, **kwargs):
+        """
+        Computes the average test log likelihood, the rmse and the calibration error over multiple test datasets
+
+        Args:
+            test_tuples: list of test set tuples, i.e. [(test_context_x_1, test_context_y_1, test_x_1, test_y_1), ...]
+
+        Returns: (avg_log_likelihood, rmse, calibr_error)
+
+        """
+
+        assert (all([len(valid_tuple) == 4 for valid_tuple in test_tuples]))
+
+        ll_list, rmse_list, calibr_err_list = list(zip(*[self.eval(*test_data_tuple, **kwargs) for test_data_tuple in test_tuples]))
+
+        return np.mean(ll_list), np.mean(rmse_list), np.mean(calibr_err_list)
+
+    def confidence_intervals(self, context_x, context_y, test_x, confidence=0.9, **kwargs):
+        pred_dist = self.predict(context_x, context_y, test_x, return_density=True, **kwargs)
+        pred_dist = self._vectorize_pred_dist(pred_dist)
+
+        alpha = (1-confidence) / 2
+        ucb = pred_dist.icdf(torch.ones(test_x.size) * (1-alpha))
+        lcb = pred_dist.icdf(torch.ones(test_x.size) * alpha)
+        return ucb, lcb
+
+    def _calib_error(self, pred_dist_vectorized, test_t_tensor):
+        cdf_vals = pred_dist_vectorized.cdf(test_t_tensor)
+
+        num_points = test_t_tensor.shape[0]
+        conf_levels = torch.linspace(0.05, 0.95, 20)
+        emp_freq_per_conf_level = torch.sum(cdf_vals[:, None] <= conf_levels, dim=0).float() / num_points
+
+        calib_rmse = torch.sqrt(torch.mean((emp_freq_per_conf_level - conf_levels)**2))
+        return calib_rmse
+
+    def _vectorize_pred_dist(self, pred_dist):
+        raise NotImplementedError
+
     def _compute_normalization_stats(self, X, Y, stats_dict=None):
         if stats_dict is None:
             stats_dict = {}

@@ -130,9 +130,9 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
                     # if validation data is provided  -> compute the valid log-likelihood
                     if valid_tuples is not None:
                         self.likelihood.eval()
-                        valid_ll, valid_rmse = self.eval_datasets(valid_tuples)
+                        valid_ll, valid_rmse, calibr_err = self.eval_datasets(valid_tuples)
                         self.likelihood.train()
-                        message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f' % (np.mean(valid_ll), np.mean(valid_rmse))
+                        message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f - Calib-Err %.3f' % (valid_ll, valid_rmse, calibr_err)
 
                     if verbose:
                         self.logger.info(message)
@@ -145,7 +145,6 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
         for task_dict in self.task_dicts: task_dict['model'].eval()
         self.likelihood.eval()
         return loss.item()
-
 
     def predict(self, context_x, context_y, test_x, return_density=False):
         """
@@ -189,49 +188,6 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
             pred_std = pred_dist_transformed.stddev
             return pred_mean.cpu().numpy(), pred_std.cpu().numpy()
 
-    def eval(self, context_x, context_y, test_x, test_t):
-        """
-        Computes the average test log likelihood and the rmse on test data
-
-        Args:
-            context_x: (ndarray) context input data for which to compute the posterior
-            context_y: (ndarray) context targets for which to compute the posterior
-            test_x: (ndarray) test input data of shape (n_samples, ndim_x)
-            test_t: (ndarray) test target data of shape (n_samples, 1)
-
-        Returns: (avg_log_likelihood, rmse)
-
-        """
-
-        context_x, context_y = _handle_input_dimensionality(context_x, context_y)
-        test_x, test_t = _handle_input_dimensionality(test_x, test_t)
-        test_t_tensor = torch.from_numpy(test_t).float().flatten().to(device)
-
-        with torch.no_grad():
-            pred_dist = self.predict(context_x, context_y, test_x, return_density=True)
-            avg_log_likelihood = pred_dist.log_prob(test_t_tensor) / test_t_tensor.shape[0]
-            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt()
-
-            return avg_log_likelihood.cpu().item(), rmse.cpu().item()
-
-    def eval_datasets(self, test_tuples):
-        """
-        Computes the average test log likelihood and the rmse over multiple test datasets
-
-        Args:
-            test_tuples: list of test set tuples, i.e. [(test_context_x_1, test_context_y_1, test_x_1, test_y_1), ...]
-
-        Returns: (avg_log_likelihood, rmse)
-
-        """
-
-        assert (all([len(valid_tuple) == 4 for valid_tuple in test_tuples]))
-
-        ll_list, rmse_list = list(zip(*[self.eval(*test_data_tuple) for test_data_tuple in test_tuples]))
-
-        return np.mean(ll_list), np.mean(rmse_list)
-
-
     def state_dict(self):
         state_dict = {
             'optimizer': self.optimizer.state_dict(),
@@ -246,7 +202,6 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
         for task_dict in self.task_dicts:
             task_dict['model'].load_state_dict(state_dict['model'])
         self.optimizer.load_state_dict(state_dict['optimizer'])
-
 
     def _setup_gp_prior(self, mean_module, covar_module, learning_mode, feature_dim, mean_nn_layers, kernel_nn_layers):
 
@@ -306,3 +261,50 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
             self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 1000, gamma=lr_decay)
         else:
             self.lr_scheduler = DummyLRScheduler()
+
+    def _vectorize_pred_dist(self, pred_dist):
+        return torch.distributions.Normal(pred_dist.mean, pred_dist.stddev)
+
+if __name__ == "__main__":
+    from experiments.data_sim import GPFunctionsDataset
+
+    data_sim = GPFunctionsDataset(random_state=np.random.RandomState(28))
+    meta_train_data = data_sim.generate_meta_train_data(n_tasks=2, n_samples=40)
+    meta_test_data = data_sim.generate_meta_test_data(n_tasks=10, n_samples_context=40, n_samples_test=160)
+
+    NN_LAYERS = (32, 32)
+
+    plot = False
+    from matplotlib import pyplot as plt
+
+    if plot:
+        for x_train, y_train in meta_train_data:
+            plt.scatter(x_train, y_train)
+        plt.title('sample from the GP prior')
+        plt.show()
+
+    """ 2) Classical mean learning based on mll """
+
+    print('\n ---- GPR mll meta-learning ---- ')
+
+    torch.set_num_threads(2)
+
+    for weight_decay in [0.0001]:
+        gp_model = GPRegressionMetaLearned(meta_train_data, num_iter_fit=2000, weight_decay=weight_decay, task_batch_size=2,
+                                             covar_module='SE', mean_module='NN', mean_nn_layers=NN_LAYERS,
+                                             kernel_nn_layers=NN_LAYERS)
+        itrs = 0
+        for i in range(10):
+            gp_model.meta_fit(valid_tuples=meta_test_data, log_period=500, n_iter=1000)
+            itrs += 1000
+
+            x_plot = np.linspace(-5, 5, num=150)
+            x_context, t_context, x_test, y_test = meta_test_data[0]
+            pred_mean, pred_std = gp_model.predict(x_context, t_context, x_plot)
+            ucb, lcb = gp_model.confidence_intervals(x_context, t_context, x_plot, confidence=0.9)
+
+            plt.scatter(x_test, y_test)
+            plt.plot(x_plot, pred_mean)
+            plt.fill_between(x_plot, lcb, ucb, alpha=0.2)
+            plt.title('GPR meta mll (weight-decay =  %.4f) itrs = %i' % (weight_decay, itrs))
+            plt.show()
