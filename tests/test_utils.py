@@ -1,5 +1,6 @@
 import unittest
 from src.models import NeuralNetworkVectorized, NeuralNetwork, LinearVectorized, CatDist, EqualWeightedMixtureDist
+from src.util import find_root_by_bounding
 import torch
 import pyro
 import numpy as np
@@ -238,6 +239,25 @@ class TestEqualWeightedMixture(unittest.TestCase):
         p1 = mixture1.log_prob(value).item()
         p2 = mixture2.log_prob(value).item()
         assert np.array_equal(p1, p2)
+
+class TestRootFinding(unittest.TestCase):
+
+    def test_finding_quantiles(self):
+
+        size = 100
+        loc = torch.normal(0., 1., size=(size,))
+        scale = torch.normal(0., 1., size=(size,)).exp()
+
+        def cdf_fun(x):
+            return torch.distributions.Normal(loc=loc, scale=scale).cdf(x)
+
+        for c in [0.1, 0.9, 0.95]:
+
+            l = - 1e8 * torch.ones(size)
+            r = + 1e8 * torch.ones(size)
+
+            root = find_root_by_bounding(lambda x: cdf_fun(x) - c, l, r)
+            assert torch.sum(torch.abs(cdf_fun(root) - c)).item() < 1e-4
 
 
 

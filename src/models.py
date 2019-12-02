@@ -3,7 +3,7 @@ import gpytorch
 import math
 from collections import OrderedDict
 from config import device
-
+from src.util import find_root_by_bounding
 
 """ ----------------------------------------------------"""
 """ ------------ Probability Distributions ------------ """
@@ -73,16 +73,16 @@ class FactorizedNormal(Distribution):
 
 class EqualWeightedMixtureDist(Distribution):
 
-    def __init__(self, dists, batched=False):
+    def __init__(self, dists, batched=False, num_dists=None):
         self.batched = batched
         if batched:
             assert isinstance(dists, torch.distributions.Distribution)
-            self.n_dists = dists.batch_shape
+            self.num_dists = dists.batch_shape if num_dists is None else num_dists
             event_shape = dists.event_shape
         else:
             assert all([isinstance(d, torch.distributions.Distribution) for d in dists])
             event_shape = dists[0].event_shape
-            self.n_dists = len(dists)
+            self.num_dists = len(dists)
         self.dists = dists
 
         super().__init__(event_shape=event_shape)
@@ -123,7 +123,23 @@ class EqualWeightedMixtureDist(Distribution):
             log_probs_dists = self.dists.log_prob(value)
         else:
             log_probs_dists = torch.stack([dist.log_prob(value) for dist in self.dists])
-        return torch.logsumexp(log_probs_dists, dim=0) - torch.log(torch.tensor(self.n_dists).float())
+        return torch.logsumexp(log_probs_dists, dim=0) - torch.log(torch.tensor(self.num_dists).float())
+
+    def cdf(self, value):
+        if self.batched:
+            cum_p = self.dists.cdf(value)
+        else:
+            cum_p = torch.stack([dist.cdf(value) for dist in self.dists])
+        assert cum_p.shape[0] == self.num_dists
+        return torch.mean(cum_p, dim=0)
+
+    def icdf(self, quantile):
+        left = - 1e8 * torch.ones(quantile.shape)
+        right = + 1e8 * torch.ones(quantile.shape)
+        fun = lambda x: self.cdf(x) - quantile
+        return find_root_by_bounding(fun, left, right)
+
+
 
 class CatDist(Distribution):
 

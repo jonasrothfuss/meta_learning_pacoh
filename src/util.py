@@ -2,7 +2,44 @@ import numpy as np
 import os
 import logging
 from absl import flags
+import warnings
+import torch
 
+
+def find_root_by_bounding(fun, left, right, eps=1e-6, max_iter=1e4):
+    """
+    Root finding method that uses selective shrinking of a target interval bounded by left and right
+    --> other than the newton method, this method only works for for vectorized univariate functions
+    Args:
+        fun (callable): function f for which f(x) = 0 shall be solved
+        left: (torch.Tensor): initial left bound
+        right (torch.Tensor): initial right bound
+        eps (float): tolerance
+        max_iter (int): maximum iterations
+    """
+
+    assert callable(fun)
+
+    n_iter = 0
+    approx_error = 1e12
+    while approx_error > eps:
+        middle = (right + left)/2
+        f = fun(middle)
+
+        left_of_zero = (f < 0).flatten()
+        left[left_of_zero] = middle[left_of_zero]
+        right[~left_of_zero] = middle[~left_of_zero]
+
+        assert torch.all(left <= right).item()
+
+        approx_error = torch.max(torch.abs(right-left))/2
+        n_iter += 1
+
+        if n_iter > max_iter:
+            warnings.warn("Max_iter has been reached - stopping newton method for determining quantiles")
+            return torch.Tensor([np.nan for _ in range(len(left))] )
+
+    return middle
 
 def _handle_input_dimensionality(x, y=None):
     if x.ndim == 1:
