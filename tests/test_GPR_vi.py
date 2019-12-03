@@ -49,7 +49,6 @@ class TestGPR_mll_vi(unittest.TestCase):
 
                 self.assertTrue(np.array_equal(t_predict_1, t_predict_2))
 
-
     def test_basic_learning(self):
 
         for mean_module, covar_module in [('constant', 'SE'), ('NN', 'NN')]:
@@ -58,7 +57,7 @@ class TestGPR_mll_vi(unittest.TestCase):
                                               mean_nn_layers=(8, 8), kernel_nn_layers=(8, 8))
 
             gpr_model.fit(valid_x=self.x_train, valid_t=self.y_train_sin)
-            ll, rmse = gpr_model.eval(self.x_train, self.y_train_sin)
+            ll, rmse, _ = gpr_model.eval(self.x_train, self.y_train_sin)
 
             pyro.clear_param_store()
 
@@ -66,7 +65,7 @@ class TestGPR_mll_vi(unittest.TestCase):
                                                          num_iter_fit=2000, mean_module=mean_module, covar_module=covar_module,
                                                          random_seed=25, mean_nn_layers=(8, 8), kernel_nn_layers=(8, 8))
             gpr_model_long_train.fit(valid_x=self.x_train, valid_t=self.y_train_sin)
-            ll_long, rmse_long = gpr_model_long_train.eval(self.x_train, self.y_train_sin)
+            ll_long, rmse_long, _ = gpr_model_long_train.eval(self.x_train, self.y_train_sin)
             pyro.clear_param_store()
 
             print(ll, rmse)

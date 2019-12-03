@@ -113,9 +113,9 @@ class GPRegressionLearned(RegressionModel):
 
         self.fitted = False
 
-    def fit(self, verbose=True, valid_x=None, valid_t=None, log_period=500, n_iter=None):
+    def fit(self, valid_x=None, valid_t=None, verbose=True, log_period=500, n_iter=None):
         """
-        fits prior parameters of the  GPC model by maximizing the mll of the training data
+        fits prior parameters of the  GPR model by maximizing the mll of the training data
 
         Args:
             verbose: (boolean) whether to print training progress
@@ -154,12 +154,12 @@ class GPRegressionLearned(RegressionModel):
                     if valid_x is not None:
                         self.model.eval()
                         self.likelihood.eval()
-                        valid_ll, valid_rmse = self.eval(valid_x, valid_t)
+                        valid_ll, valid_rmse, calibr_err = self.eval(valid_x, valid_t)
                         self.lr_scheduler.step(valid_ll)
                         self.model.train()
                         self.likelihood.train()
 
-                        message += ' - Valid-LL: %.3f - Valid-RMSE %.3f' %(valid_ll, valid_rmse)
+                        message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f - Calib-Err %.3f' % (valid_ll, valid_rmse, calibr_err)
 
                     if verbose:
                         self.logger.info(message)
@@ -173,7 +173,7 @@ class GPRegressionLearned(RegressionModel):
         self.likelihood.eval()
         return loss.item()
 
-    def predict(self, test_x, return_density=False):
+    def predict(self, test_x, return_density=False, **kwargs):
         """
         computes the predictive distribution of the targets p(t|test_x, train_x, train_y)
 
@@ -201,29 +201,6 @@ class GPRegressionLearned(RegressionModel):
                 pred_std = pred_dist_transformed.stddev.cpu().numpy()
                 return pred_mean, pred_std
 
-
-    def eval(self, test_x, test_t):
-        """
-        Computes the average test log likelihood and the rmse on test data
-
-        Args:
-            test_x: (ndarray) test input data of shape (n_samples, ndim_x)
-            test_t: (ndarray) test target data of shape (n_samples, 1)
-
-        Returns: (avg_log_likelihood, rmse)
-
-        """
-        # convert to tensors
-        test_x, test_t = _handle_input_dimensionality(test_x, test_t)
-        test_t_tensor = torch.from_numpy(test_t).contiguous().float().flatten().to(device)
-
-        with torch.no_grad():
-            pred_dist = self.predict(test_x, return_density=True)
-            avg_log_likelihood = pred_dist.log_prob(test_t_tensor) / test_t_tensor.shape[0]
-            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt()
-
-            return avg_log_likelihood.cpu().item(), rmse.cpu().item()
-
     def state_dict(self):
         state_dict = {
             'model': self.model.state_dict(),
@@ -235,16 +212,18 @@ class GPRegressionLearned(RegressionModel):
         self.model.load_state_dict(state_dict['model'])
         self.optimizer.load_state_dict(state_dict['optimizer'])
 
+    def _vectorize_pred_dist(self, pred_dist):
+        return torch.distributions.Normal(pred_dist.mean, pred_dist.stddev)
 
 if __name__ == "__main__":
     import torch
     import numpy as np
     from matplotlib import pyplot as plt
 
-    n_train_samples = 200
+    n_train_samples = 50
     n_test_samples = 200
 
-    torch.manual_seed(23)
+    torch.manual_seed(25)
     x_data = torch.normal(mean=-1, std=2.0, size=(n_train_samples + n_test_samples, 1))
     W = torch.tensor([[0.6]])
     b = torch.tensor([-1])
@@ -253,7 +232,19 @@ if __name__ == "__main__":
     x_data_train, x_data_test = x_data[:n_train_samples].numpy(), x_data[n_train_samples:].numpy()
     y_data_train, y_data_test = y_data[:n_train_samples].numpy(), y_data[n_train_samples:].numpy()
 
-    plt.scatter(x_data_train, y_data_train)
-    plt.show()
+    gp_mll = GPRegressionLearned(x_data_train, y_data_train, mean_module='NN', covar_module='SE', num_iter_fit=5000)
+    gp_mll.fit(x_data_test, y_data_test)
 
-    gp_mll = GPRegressionLearned(x_data_train, y_data_train, num_iter_fit=5000)
+    x_plot = np.linspace(6, -6, num=200)
+    gp_mll.confidence_intervals(x_plot)
+
+    pred_mean, pred_std = gp_mll.predict(x_plot)
+    pred_mean, pred_std = pred_mean.flatten(), pred_std.flatten()
+
+    plt.scatter(x_data_test, y_data_test)
+    plt.plot(x_plot, pred_mean)
+
+    #lcb, ucb = pred_mean - pred_std, pred_mean + pred_std
+    lcb, ucb = gp_mll.confidence_intervals(x_plot)
+    plt.fill_between(x_plot, lcb, ucb, alpha=0.4)
+    plt.show()

@@ -93,8 +93,8 @@ class GPRegressionLearnedVI(RegressionModel):
 
                 # if validation data is provided  -> compute the valid log-likelihood
                 if valid_x is not None:
-                    valid_ll, rmse = self.eval(valid_x, valid_t)
-                    message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f' % (valid_ll, rmse)
+                    valid_ll, valid_rmse, calibr_err = self.eval(valid_x, valid_t)
+                    message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f - Calib-Err %.3f' % (valid_ll, valid_rmse, calibr_err)
 
                 self.logger.info(message)
 
@@ -140,32 +140,6 @@ class GPRegressionLearnedVI(RegressionModel):
                 pred_mean = pred_dist.mean.cpu().numpy()
                 pred_std = pred_dist.stddev.cpu().numpy()
                 return pred_mean, pred_std
-
-
-    def eval(self, test_x, test_t, n_posterior_samples=100, mode='Bayes'):
-        """
-        Computes the average test log likelihood and the rmse on test data
-
-        Args:
-            test_x: (ndarray) test input data of shape (n_samples, ndim_x)
-            test_t: (ndarray) test target data of shape (n_samples, 1)
-            n_posterior_samples: (int) number of samples from posterior to average over
-            mode: (std) either of ['Bayes' , 'MAP']
-
-        Returns: (avg_log_likelihood, rmse)
-
-        """
-
-        # convert to tensors
-        test_x, test_t = _handle_input_dimensionality(test_x, test_t)
-        test_t_tensor = torch.from_numpy(test_t).float().flatten().to(device)
-
-        with torch.no_grad():
-            pred_dist = self.predict(test_x, n_posterior_samples=n_posterior_samples, mode=mode, return_density=True)
-            avg_log_likelihood = pred_dist.log_prob(test_t_tensor) / test_t_tensor.shape[0]
-            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt()
-
-            return avg_log_likelihood.cpu().item(), rmse.cpu().item()
 
 
     def _setup_model_inference(self, mean_module_str, covar_module_str, mean_nn_layers, kernel_nn_layers, cov_type):
@@ -234,6 +208,10 @@ class GPRegressionLearnedVI(RegressionModel):
         else:
             raise NotImplementedError('Optimizer must be Adam or SGD')
 
+    def _vectorize_pred_dist(self, pred_dist):
+        multiv_normal_batched = pred_dist.dists
+        normal_batched = torch.distributions.Normal(multiv_normal_batched.mean, multiv_normal_batched.stddev)
+        return EqualWeightedMixtureDist(normal_batched, batched=True, num_dists=multiv_normal_batched.batch_shape[0])
 
 
 if __name__ == "__main__":
@@ -251,9 +229,9 @@ if __name__ == "__main__":
 
     """ 2) train model """
 
-    for prior_factor in [1.0]:
-        gpr = GPRegressionLearnedVI(train_x, train_y, lr=2e-3, prior_factor=prior_factor, covar_module='SE', mean_module='constant',
-                                    svi_batch_size=10, num_iter_fit=5000, mean_nn_layers=(16, 16),
+    for prior_factor in [0.001]:
+        gpr = GPRegressionLearnedVI(train_x, train_y, lr=2e-3, prior_factor=prior_factor, covar_module='SE', mean_module='NN',
+                                    svi_batch_size=10, num_iter_fit=10000, mean_nn_layers=(16, 16),
                                     kernel_nn_layers=(16, 16), normalize_data=True, cov_type='full')
 
         gpr.fit(valid_x=test_x, valid_t=test_y, log_period=500)

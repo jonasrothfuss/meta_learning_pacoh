@@ -19,6 +19,45 @@ class RegressionModel:
             torch.manual_seed(random_seed)
             np.random.seed(random_seed+1)
 
+    def predict(self, test_x, return_density=False, **kwargs):
+        raise NotImplementedError
+
+    def eval(self, test_x, test_t, **kwargs):
+        """
+        Computes the average test log likelihood and the rmse on test data
+
+        Args:
+            test_x: (ndarray) test input data of shape (n_samples, ndim_x)
+            test_t: (ndarray) test target data of shape (n_samples, 1)
+
+        Returns: (avg_log_likelihood, rmse)
+
+        """
+        # convert to tensors
+        test_x, test_t = _handle_input_dimensionality(test_x, test_t)
+        test_t_tensor = torch.from_numpy(test_t).contiguous().float().flatten().to(device)
+
+        with torch.no_grad():
+            pred_dist = self.predict(test_x, return_density=True, *kwargs)
+            avg_log_likelihood = pred_dist.log_prob(test_t_tensor) / test_t_tensor.shape[0]
+            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt()
+
+            pred_dist_vect = self._vectorize_pred_dist(pred_dist)
+            calibr_error = self._calib_error(pred_dist_vect, test_t_tensor)
+
+            return avg_log_likelihood.cpu().item(), rmse.cpu().item(), calibr_error.cpu().item()
+
+    def confidence_intervals(self, test_x, confidence=0.9, **kwargs):
+        pred_dist = self.predict(test_x, return_density=True, **kwargs)
+        pred_dist = self._vectorize_pred_dist(pred_dist)
+
+        alpha = (1 - confidence) / 2
+        ucb = pred_dist.icdf(torch.ones(test_x.size) * (1 - alpha))
+        lcb = pred_dist.icdf(torch.ones(test_x.size) * alpha)
+        return ucb, lcb
+
+    def _calib_error(self, pred_dist_vectorized, test_t_tensor):
+        return _calib_error(pred_dist_vectorized, test_t_tensor)
 
     def _compute_normalization_stats(self, X, Y):
         # save mean and variance of data for normalization
@@ -71,6 +110,9 @@ class RegressionModel:
         self.train_t = torch.from_numpy(train_t_normalized).contiguous().float().to(device)
 
         return self.train_x, self.train_t
+
+    def _vectorize_pred_dist(self, pred_dist):
+        raise NotImplementedError
 
 class RegressionModelMetaLearned:
 
@@ -144,14 +186,7 @@ class RegressionModelMetaLearned:
         return ucb, lcb
 
     def _calib_error(self, pred_dist_vectorized, test_t_tensor):
-        cdf_vals = pred_dist_vectorized.cdf(test_t_tensor)
-
-        num_points = test_t_tensor.shape[0]
-        conf_levels = torch.linspace(0.05, 0.95, 20)
-        emp_freq_per_conf_level = torch.sum(cdf_vals[:, None] <= conf_levels, dim=0).float() / num_points
-
-        calib_rmse = torch.sqrt(torch.mean((emp_freq_per_conf_level - conf_levels)**2))
-        return calib_rmse
+       return _calib_error(pred_dist_vectorized, test_t_tensor)
 
     def _vectorize_pred_dist(self, pred_dist):
         raise NotImplementedError
@@ -207,3 +242,13 @@ class RegressionModelMetaLearned:
         y_tensor = torch.from_numpy(y_data).float().to(device)
 
         return x_tensor, y_tensor, stats_dict
+
+def _calib_error(pred_dist_vectorized, test_t_tensor):
+    cdf_vals = pred_dist_vectorized.cdf(test_t_tensor)
+
+    num_points = test_t_tensor.shape[0]
+    conf_levels = torch.linspace(0.05, 0.95, 20)
+    emp_freq_per_conf_level = torch.sum(cdf_vals[:, None] <= conf_levels, dim=0).float() / num_points
+
+    calib_rmse = torch.sqrt(torch.mean((emp_freq_per_conf_level - conf_levels)**2))
+    return calib_rmse

@@ -89,15 +89,15 @@ class GPRegressionLearnedSVGD(RegressionModel):
 
                 # if validation data is provided  -> compute the valid log-likelihood
                 if valid_x is not None:
-                    valid_ll, rmse = self.eval(valid_x, valid_t)
-                    message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f' % (valid_ll, rmse)
+                    valid_ll, valid_rmse, calibr_err = self.eval(valid_x, valid_t)
+                    message += ' - Valid-LL: %.3f - Valid-RMSE: %.3f - Calib-Err %.3f' % (valid_ll, valid_rmse, calibr_err)
 
                 self.logger.info(message)
 
         self.fitted = True
 
 
-    def predict(self, test_x, return_density=False):
+    def predict(self, test_x, return_density=False, **kwargs):
         """
         computes the predictive distribution of the targets p(t|test_x, train_x, train_y)
 
@@ -128,30 +128,6 @@ class GPRegressionLearnedSVGD(RegressionModel):
                 pred_mean = pred_dist.mean.cpu().numpy()
                 pred_std = pred_dist.stddev.cpu().numpy()
                 return pred_mean, pred_std
-
-
-    def eval(self, test_x, test_t):
-        """
-        Computes the average test log likelihood and the rmse on test data
-
-        Args:
-            test_x: (ndarray) test input data of shape (n_samples, ndim_x)
-            test_t: (ndarray) test target data of shape (n_samples, 1)
-
-        Returns: (avg_log_likelihood, rmse)
-
-        """
-
-        # convert to tensors
-        test_x, test_t = _handle_input_dimensionality(test_x, test_t)
-        test_t_tensor = torch.from_numpy(test_t).float().flatten().to(device)
-
-        with torch.no_grad():
-            pred_dist = self.predict(test_x, return_density=True)
-            avg_log_likelihood = pred_dist.log_prob(test_t_tensor) / test_t_tensor.shape[0]
-            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt()
-
-            return avg_log_likelihood.cpu().item(), rmse.cpu().item()
 
 
     def _setup_model_inference(self, mean_module_str, covar_module_str, mean_nn_layers, kernel_nn_layers,
@@ -220,6 +196,11 @@ class GPRegressionLearnedSVGD(RegressionModel):
         else:
             self.lr_scheduler = DummyLRScheduler()
 
+    def _vectorize_pred_dist(self, pred_dist):
+        multiv_normal_batched = pred_dist.dists
+        normal_batched = torch.distributions.Normal(multiv_normal_batched.mean, multiv_normal_batched.stddev)
+        return EqualWeightedMixtureDist(normal_batched, batched=True, num_dists=multiv_normal_batched.batch_shape[0])
+
 
 if __name__ == "__main__":
 
@@ -240,23 +221,25 @@ if __name__ == "__main__":
 
 
     """ 2) train model """
-    prior_factor = 0.01
-    for bandwidth in [0.8, 0.5, 0.1, 0.01]:
-        gpr = GPRegressionLearnedSVGD(train_x, train_y, lr=2e-3, prior_factor=prior_factor, covar_module='SE', mean_module='constant',
-                                      num_particles=20, num_iter_fit=5000, mean_nn_layers=(16, 16), kernel='RBF',
+    prior_factor = 0.00001
+    for bandwidth in [10, 1, 0.1, 0.01, None]:
+        gpr = GPRegressionLearnedSVGD(train_x, train_y, lr=2e-3, prior_factor=prior_factor, covar_module='SE', mean_module='NN',
+                                      num_particles=10, num_iter_fit=2000, mean_nn_layers=(32, 32, 32), kernel='RBF',
                                       kernel_nn_layers=(16, 16), normalize_data=True, bandwidth=bandwidth)
 
-        gpr.fit(valid_x=test_x, valid_t=test_y, log_period=500)
+        gpr.fit(valid_x=test_x, valid_t=test_y, log_period=200)
 
         """ plotting """
 
         from matplotlib import pyplot as plt
-        plt.scatter(train_x, train_y)
+        plt.scatter(test_x, test_y)
 
         x_plot = np.sort(test_x.flatten()).reshape(-1, 1)
         y_plot, y_std = gpr.predict(x_plot)
+        lcb, ucb = gpr.confidence_intervals(x_plot)
 
         plt.plot(x_plot, y_plot)
-        plt.fill_between(x_plot.flatten(), y_plot-y_std, y_plot+y_std, alpha=.5)
+        if bandwidth is None: bandwidth = - 10.0
+        plt.fill_between(x_plot.flatten(), lcb, ucb, alpha=.5)
         plt.title("prior_factor=%.4f, bandwidth=%.4f"%(prior_factor, bandwidth))
         plt.show()
