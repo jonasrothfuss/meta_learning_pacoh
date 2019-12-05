@@ -12,7 +12,7 @@ from config import device
 class GPRegressionMetaLearned(RegressionModelMetaLearned):
 
     def __init__(self, meta_train_data, learning_mode='both', lr_params=1e-3, weight_decay=0.0, feature_dim=2,
-                 num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
+                 num_iter_fit=10000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
                  task_batch_size=5, normalize_data=True, optimizer='Adam', lr_decay=1.0, random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
@@ -251,7 +251,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
 
     def _setup_optimizer(self, optimizer, lr, lr_decay):
         if optimizer == 'Adam':
-            self.optimizer = torch.optim.AdamW(self.shared_parameters, lr=lr)
+            self.optimizer = torch.optim.AdamW(self.shared_parameters, lr=lr, weight_decay=self.weight_decay)
         elif optimizer == 'SGD':
             self.optimizer = torch.optim.SGD(self.shared_parameters, lr=lr)
         else:
@@ -266,13 +266,13 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
         return torch.distributions.Normal(pred_dist.mean, pred_dist.stddev)
 
 if __name__ == "__main__":
-    from experiments.data_sim import GPFunctionsDataset
+    from experiments.data_sim import GPFunctionsDataset, SinusoidDataset
 
-    data_sim = GPFunctionsDataset(random_state=np.random.RandomState(28))
-    meta_train_data = data_sim.generate_meta_train_data(n_tasks=2, n_samples=40)
-    meta_test_data = data_sim.generate_meta_test_data(n_tasks=10, n_samples_context=40, n_samples_test=160)
+    data_sim = SinusoidDataset(random_state=np.random.RandomState(29))
+    meta_train_data = data_sim.generate_meta_train_data(n_tasks=20, n_samples=10)
+    meta_test_data = data_sim.generate_meta_test_data(n_tasks=50, n_samples_context=10, n_samples_test=160)
 
-    NN_LAYERS = (32, 32)
+    NN_LAYERS = (32, 32, 32, 32)
 
     plot = False
     from matplotlib import pyplot as plt
@@ -289,14 +289,15 @@ if __name__ == "__main__":
 
     torch.set_num_threads(2)
 
-    for weight_decay in [0.0001]:
-        gp_model = GPRegressionMetaLearned(meta_train_data, num_iter_fit=2000, weight_decay=weight_decay, task_batch_size=2,
-                                             covar_module='SE', mean_module='NN', mean_nn_layers=NN_LAYERS,
+    for weight_decay in [0.8, 0.5, 0.4, 0.3, 0.2, 0.1]:
+        gp_model = GPRegressionMetaLearned(meta_train_data, num_iter_fit=20000, weight_decay=weight_decay, task_batch_size=2,
+                                             covar_module='NN', mean_module='NN', mean_nn_layers=NN_LAYERS,
                                              kernel_nn_layers=NN_LAYERS)
         itrs = 0
-        for i in range(10):
-            gp_model.meta_fit(valid_tuples=meta_test_data, log_period=500, n_iter=1000)
-            itrs += 1000
+        print("---- weight-decay =  %.4f ----"%weight_decay)
+        for i in range(1):
+            gp_model.meta_fit(valid_tuples=meta_test_data, log_period=1000, n_iter=20000)
+            itrs += 20000
 
             x_plot = np.linspace(-5, 5, num=150)
             x_context, t_context, x_test, y_test = meta_test_data[0]
@@ -304,6 +305,8 @@ if __name__ == "__main__":
             ucb, lcb = gp_model.confidence_intervals(x_context, t_context, x_plot, confidence=0.9)
 
             plt.scatter(x_test, y_test)
+            plt.scatter(x_context, t_context)
+
             plt.plot(x_plot, pred_mean)
             plt.fill_between(x_plot, lcb, ucb, alpha=0.2)
             plt.title('GPR meta mll (weight-decay =  %.4f) itrs = %i' % (weight_decay, itrs))

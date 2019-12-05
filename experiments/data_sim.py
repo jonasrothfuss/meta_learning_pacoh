@@ -200,14 +200,14 @@ class MNISTRegressionDataset(MetaDataset):
                 np.array(test_indices, dtype=self.dtype), np.array(test_values, dtype=self.dtype))
 
 
-class SinusoidMetaDataset(MetaDataset):
+class SinusoidDataset(MetaDataset):
 
     def __init__(self, amp_low=0.8, amp_high=1.2,
                  period_low=1.0, period_high=1.0,
                  x_shift_mean=0.0, x_shift_std=0.0,
                  y_shift_mean=5.0, y_shift_std=0.05,
                  slope_mean=0.2, slope_std=0.05,
-                 noise_std=0.01, x_low=-5, x_high=5, random_state=None):
+                 noise_std=0.1, x_low=-5, x_high=5, random_state=None):
 
         super().__init__(random_state)
         assert y_shift_std >= 0 and noise_std >= 0, "std must be non-negative"
@@ -225,7 +225,7 @@ class SinusoidMetaDataset(MetaDataset):
         for i in range(n_tasks):
             f = self._sample_sinusoid()
             X = self.random_state.uniform(self.x_low, self.x_high, size=(n_samples_context + n_samples_test, 1))
-            Y = f(X)
+            Y = f(X) + self.noise_std * self.random_state.normal(size=f(X).shape)
             meta_test_tuples.append((X[:n_samples_context], Y[:n_samples_context], X[n_samples_context:], Y[n_samples_context:]))
 
         return meta_test_tuples
@@ -375,14 +375,14 @@ class CauchyDataset(MetaDataset):
 if __name__ == "__main__":
     x = np.linspace(-5, 5, num=200)
 
-    #dataset = SinusoidNonstationaryDataset()
+    dataset = SinusoidDataset()
 
-    dataset = CauchyDataset()
+    #dataset = CauchyDataset()
 
 
     from matplotlib import pyplot as plt
 
-    meta_data = dataset.generate_meta_train_data(n_tasks=4, n_samples=20)
+    meta_data = dataset.generate_meta_train_data(n_tasks=4, n_samples=50)
 
     for x, y in meta_data:
         # func = dataset._sample_fun()

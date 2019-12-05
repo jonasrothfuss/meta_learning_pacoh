@@ -125,17 +125,15 @@ def collect_exp_results(exp_name, verbose=True):
     return pd.DataFrame(data=exp_dicts)
 
 
-def generate_launch_commands(module, exp_config):
+def generate_launch_commands(module, exp_config, check_flags=True):
     # create base command without flags
-    interpreter_script = sys.executable
-    base_exp_script = os.path.abspath(module.__file__)
-    base_cmd = interpreter_script + ' ' + base_exp_script
+    base_cmd = generate_base_command(module)
 
-    # check exp_config
-    allowed_flags = set(module.FLAGS.flag_values_dict().keys())
-    for key, value in exp_config.items():
-        assert hasattr(value, '__iter__')
-        assert key in allowed_flags, "%s is not a flag in %s"%(key, str(module))
+    if check_flags:
+        allowed_flags = set(module.FLAGS.flag_values_dict().keys())
+        for key, value in exp_config.items():
+            assert hasattr(value, '__iter__')
+            assert key in allowed_flags, "%s is not a flag in %s"%(key, str(module))
 
 
     config_product = list(itertools.product(*list(exp_config.values())))
@@ -150,6 +148,13 @@ def generate_launch_commands(module, exp_config):
         cmds.append(cmd)
 
     return cmds
+
+
+def generate_base_command(module):
+    interpreter_script = sys.executable
+    base_exp_script = os.path.abspath(module.__file__)
+    base_cmd = interpreter_script + ' ' + base_exp_script
+    return base_cmd
 
 
 class AsyncExecutor:
