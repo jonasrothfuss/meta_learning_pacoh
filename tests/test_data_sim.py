@@ -1,19 +1,19 @@
 import unittest
 import numpy as np
 
-from experiments.data_sim import SinusoidMetaDataset, SinusoidNonstationaryDataset, MNISTRegressionDataset, \
+from experiments.data_sim import SinusoidDataset, SinusoidNonstationaryDataset, MNISTRegressionDataset, \
     GPFunctionsDataset, CauchyDataset
 
-class TestSinusoidMetaDataset(unittest.TestCase):
+class TestSinusoidDataset(unittest.TestCase):
 
     def test_seed_reproducability(self):
         rds = np.random.RandomState(55)
-        dataset = SinusoidMetaDataset(random_state=rds)
+        dataset = SinusoidDataset(random_state=rds)
         data_test_1 = dataset.generate_meta_test_data(n_tasks=2, n_samples_context=5, n_samples_test=10)
         data_train_1 = dataset.generate_meta_train_data(n_tasks=5, n_samples=20)
 
         rds = np.random.RandomState(55)
-        dataset = SinusoidMetaDataset(random_state=rds)
+        dataset = SinusoidDataset(random_state=rds)
         data_test_2 = dataset.generate_meta_test_data(n_tasks=2, n_samples_context=5, n_samples_test=10)
         data_train_2 = dataset.generate_meta_train_data(n_tasks=5, n_samples=20)
 
@@ -26,7 +26,7 @@ class TestSinusoidMetaDataset(unittest.TestCase):
                 assert np.array_equal(data_array_1, data_array_2)
 
     def test_no_noise(self):
-        dataset = SinusoidMetaDataset(
+        dataset = SinusoidDataset(
                  amp_low=1.0, amp_high=1.0,
                  period_low=1.0, period_high=1.0,
                  x_shift_mean=0.0, x_shift_std=0.0,
@@ -46,7 +46,7 @@ class TestSinusoidMetaDataset(unittest.TestCase):
 
 
     def test_context_test_consistency(self):
-        dataset = SinusoidMetaDataset(noise_std=0.00, x_low=1, x_high=1)
+        dataset = SinusoidDataset(noise_std=0.00, x_low=1, x_high=1)
 
         data_tuples = dataset.generate_meta_test_data(n_tasks=10, n_samples_context=1, n_samples_test=1)
 
