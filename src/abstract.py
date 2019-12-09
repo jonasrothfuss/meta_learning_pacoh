@@ -222,7 +222,7 @@ class RegressionModelMetaLearned:
 
         assert all([self.input_dim == train_x.shape[-1] and self.output_dim == train_t.shape[-1] for train_x, train_t in meta_train_data])
 
-    def _prepare_data_per_task(self, x_data, y_data, stats_dict={}, flatten_y=True):
+    def _prepare_data_per_task(self, x_data, y_data, flatten_y=True):
         # a) make arrays 2-dimensional
         x_data, y_data = _handle_input_dimensionality(x_data, y_data)
 
@@ -237,7 +237,7 @@ class RegressionModelMetaLearned:
         x_tensor = torch.from_numpy(x_data).float().to(device)
         y_tensor = torch.from_numpy(y_data).float().to(device)
 
-        return x_tensor, y_tensor, stats_dict
+        return x_tensor, y_tensor
 
 def _calib_error(pred_dist_vectorized, test_t_tensor):
     cdf_vals = pred_dist_vectorized.cdf(test_t_tensor)

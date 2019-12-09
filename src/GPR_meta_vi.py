@@ -73,7 +73,7 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
             task_dict = {}
 
             # a) prepare data
-            x_tensor, y_tensor, task_dict = self._prepare_data_per_task(train_x, train_y, stats_dict=task_dict)
+            x_tensor, y_tensor = self._prepare_data_per_task(train_x, train_y)
             task_dict['train_x'], task_dict['train_y'] = x_tensor, y_tensor
             self.task_dicts.append(task_dict)
 
@@ -148,7 +148,7 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
         assert test_x.shape[1] == context_x.shape[1]
 
         # normalize data and convert to tensor
-        context_x, context_y, data_stats = self._prepare_data_per_task(context_x, context_y, stats_dict={})
+        context_x, context_y = self._prepare_data_per_task(context_x, context_y)
 
         test_x = self._normalize_data(X=test_x, Y=None)
         test_x = torch.from_numpy(test_x).float().to(device)

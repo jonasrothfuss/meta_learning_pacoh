@@ -12,3 +12,5 @@ tensorboard
 requests
 tensorflow
 hyperopt
+ray[tune]
+tables
