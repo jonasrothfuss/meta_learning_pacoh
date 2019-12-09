@@ -48,6 +48,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
 
         # Check that data all has the same size
         self._check_meta_data_shapes(meta_train_data)
+        self._compute_normalization_stats(meta_train_data)
 
         # Setup components that are shared across tasks
         self._setup_gp_prior(mean_module, covar_module, learning_mode, feature_dim, mean_nn_layers, kernel_nn_layers)
@@ -167,7 +168,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
         # normalize data and convert to tensor
         context_x, context_y, data_stats = self._prepare_data_per_task(context_x, context_y, stats_dict={})
 
-        test_x = self._normalize_data(X=test_x, Y=None, stats_dict=data_stats)
+        test_x = self._normalize_data(X=test_x, Y=None)
         test_x = torch.from_numpy(test_x).float().to(device)
 
         with torch.no_grad():
@@ -178,8 +179,8 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
             gp_model.eval()
             self.likelihood.eval()
             pred_dist = self.likelihood(gp_model(test_x))
-            pred_dist_transformed = AffineTransformedDistribution(pred_dist, normalization_mean=data_stats['y_mean'],
-                                                                  normalization_std=data_stats['y_std'])
+            pred_dist_transformed = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
+                                                                  normalization_std=self.y_std)
 
         if return_density:
             return pred_dist_transformed

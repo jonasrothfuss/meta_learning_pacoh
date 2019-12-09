@@ -220,7 +220,7 @@ if __name__ == "__main__":
     import numpy as np
     from matplotlib import pyplot as plt
 
-    n_train_samples = 50
+    n_train_samples = 20
     n_test_samples = 200
 
     torch.manual_seed(25)
@@ -232,8 +232,10 @@ if __name__ == "__main__":
     x_data_train, x_data_test = x_data[:n_train_samples].numpy(), x_data[n_train_samples:].numpy()
     y_data_train, y_data_test = y_data[:n_train_samples].numpy(), y_data[n_train_samples:].numpy()
 
-    gp_mll = GPRegressionLearned(x_data_train, y_data_train, mean_module='NN', covar_module='SE', num_iter_fit=5000)
+    gp_mll = GPRegressionLearned(x_data_train, y_data_train, mean_module='NN', covar_module='SE', mean_nn_layers=(32, 32, 32, 32), weight_decay=0.5,
+                                 num_iter_fit=10000)
     gp_mll.fit(x_data_test, y_data_test)
+
 
     x_plot = np.linspace(6, -6, num=200)
     gp_mll.confidence_intervals(x_plot)

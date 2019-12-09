@@ -191,30 +191,27 @@ class RegressionModelMetaLearned:
     def _vectorize_pred_dist(self, pred_dist):
         raise NotImplementedError
 
-    def _compute_normalization_stats(self, X, Y, stats_dict=None):
-        if stats_dict is None:
-            stats_dict = {}
+    def _compute_normalization_stats(self, meta_train_tuples):
+        X_stack, Y_stack = list(zip(*[_handle_input_dimensionality(x_train, y_train) for x_train, y_train in meta_train_tuples]))
+        X, Y = np.concatenate(X_stack, axis=0), np.concatenate(Y_stack, axis=0)
 
         if self.normalize_data:
-            # compute mean and std of data for normalization
-            stats_dict['x_mean'], stats_dict['y_mean'] = np.mean(X, axis=0), np.mean(Y, axis=0)
-            stats_dict['x_std'], stats_dict['y_std'] = np.std(X, axis=0), np.std(Y, axis=0)
+            self.x_mean, self.y_mean = np.mean(X, axis=0), np.mean(Y, axis=0)
+            self.x_std, self.y_std = np.std(X, axis=0), np.std(Y, axis=0)
         else:
-            stats_dict['x_mean'], stats_dict['y_mean'] = np.zeros(X.shape[1]), np.zeros(Y.shape[1])
-            stats_dict['x_std'], stats_dict['y_std'] = np.ones(X.shape[1]), np.ones(Y.shape[1])
+            self.x_mean, self.y_mean = np.zeros(X.shape[1]), np.zeros(Y.shape[1])
+            self.x_std, self.y_std = np.ones(X.shape[1]), np.ones(Y.shape[1])
 
-        return stats_dict
+    def _normalize_data(self, X, Y=None):
+        assert hasattr(self, "x_mean") and hasattr(self, "x_std"), "requires computing normalization stats beforehand"
+        assert hasattr(self, "y_mean") and hasattr(self, "y_std"), "requires computing normalization stats beforehand"
 
-    def _normalize_data(self, X, Y=None, stats_dict=None):
-        assert "x_mean" in stats_dict and "x_std" in stats_dict, "requires computing normalization stats beforehand"
-        assert "y_mean" in stats_dict and "y_std" in stats_dict, "requires computing normalization stats beforehand"
-
-        X_normalized = (X - stats_dict["x_mean"]) / stats_dict["x_std"]
+        X_normalized = (X - self.x_mean[None, :]) / self.x_std[None, :]
 
         if Y is None:
             return X_normalized
         else:
-            Y_normalized = (Y - stats_dict["y_mean"]) / stats_dict["y_std"]
+            Y_normalized = (Y - self.y_mean[None, :]) / self.y_std[None, :]
             return X_normalized, Y_normalized
 
     def _check_meta_data_shapes(self, meta_train_data):
@@ -230,8 +227,7 @@ class RegressionModelMetaLearned:
         x_data, y_data = _handle_input_dimensionality(x_data, y_data)
 
         # b) normalize data
-        stats_dict = self._compute_normalization_stats(x_data, y_data, stats_dict=stats_dict)
-        x_data, y_data = self._normalize_data(x_data, y_data, stats_dict=stats_dict)
+        x_data, y_data = self._normalize_data(x_data, y_data)
 
         if flatten_y:
             assert y_data.shape[1] == 1

@@ -58,6 +58,7 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
 
         # Check that data all has the same size
         self._check_meta_data_shapes(meta_train_data)
+        self._compute_normalization_stats(meta_train_data)
 
         """ --- Setup model & inference --- """
         self._setup_model_inference(mean_module, covar_module, mean_nn_layers, kernel_nn_layers,
@@ -140,13 +141,13 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
         # normalize data and convert to tensor
         context_x, context_y, data_stats = self._prepare_data_per_task(context_x, context_y, stats_dict={})
 
-        test_x = self._normalize_data(X=test_x, Y=None, stats_dict=data_stats)
+        test_x = self._normalize_data(X=test_x, Y=None)
         test_x = torch.from_numpy(test_x).float().to(device)
 
         with torch.no_grad():
             pred_dist = self.get_pred_dist(context_x, context_y, test_x)
-            pred_dist = AffineTransformedDistribution(pred_dist, normalization_mean=data_stats['y_mean'],
-                                                      normalization_std=data_stats['y_std'])
+            pred_dist = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
+                                                      normalization_std=self.y_std)
             pred_dist = EqualWeightedMixtureDist(pred_dist, batched=True)
 
             if return_density:
