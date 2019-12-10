@@ -220,7 +220,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
             self.nn_kernel_map = None
 
         if covar_module == 'SE':
-            self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=feature_dim)).to(device)
+            self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=self.input_dim)).to(device)
         elif isinstance(covar_module, gpytorch.kernels.Kernel):
             self.covar_module = covar_module.to(device)
 

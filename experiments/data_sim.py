@@ -35,7 +35,7 @@ class MetaDataset():
         
 class PhysionetDataset(MetaDataset):
     
-    def __init__(self, random_state=None, dtype=np.float32, physionet_dir=None):
+    def __init__(self, random_state=None, variable_id=10, dtype=np.float32, physionet_dir=None):
         super().__init__(random_state)
         self.dtype = dtype
         if physionet_dir is not None:
@@ -49,9 +49,12 @@ class PhysionetDataset(MetaDataset):
                             'K','Lactate','MAP','MechVent','Mg','NIDiasABP','NIMAP','NISysABP',
                             'Na','PaCO2','PaO2','Platelets','RespRate','SaO2','SysABP',
                             'Temp','TroponinI','TroponinT','Urine','WBC','pH']
+
+        assert variable_id < len(self.variable_list), "Unknown variable ID"
+        self.variable = self.variable_list[variable_id]
             
             
-    def generate_meta_train_data(self, n_tasks, n_samples=48, variable_id=0):
+    def generate_meta_train_data(self, n_tasks, n_samples=47):
         """
         Samples n_tasks patients and returns measurements from the variable
         with the ID variable_id. n_samples defines in this case the cut-off
@@ -61,11 +64,9 @@ class PhysionetDataset(MetaDataset):
         any measurements of variable variable_id before hour n_samples, the
         returned list will contain less than n_tasks tuples.
         """
-        
-        assert variable_id < len(self.variable_list), "Unknown variable ID"
+
         assert n_tasks < 2000, "We don't have that many tasks"
         assert n_samples < 48, "We don't have that many samples"
-        variable = self.variable_list[variable_id]
         data_path = os.path.join(self.data_dir, "set_a_merged.h5")
         
         with pd.HDFStore(data_path) as hdf_file:
@@ -74,14 +75,17 @@ class PhysionetDataset(MetaDataset):
         meta_train_tuples = []
         
         for patient in keys:
-            df = pd.read_hdf(data_path, patient)[variable].dropna()
+            df = pd.read_hdf(data_path, patient)[self.variable].dropna()
             times = df.index.values.astype(self.dtype)
             values = df.values.astype(self.dtype)
             times_context = [time for time in times if time <= n_samples]
             if len(times_context) > 0:
                 times_context = np.array(times_context, dtype=self.dtype)
                 values_context = values[:len(times_context)]
-                meta_train_tuples.append((times_context, values_context))
+                if values_context.shape[0] > 1:
+                    meta_train_tuples.append((times_context, values_context))
+                else:
+                    continue
             if len(meta_train_tuples) >= n_tasks:
                 break
                 
@@ -102,10 +106,8 @@ class PhysionetDataset(MetaDataset):
         returned list will contain less than n_tasks tuples.
         """
 
-        assert variable_id < len(self.variable_list), "Unknown variable ID"
         assert n_tasks < 2000, "We don't have that many tasks"
         assert n_samples_context < 48, "We don't have that many samples"
-        variable = self.variable_list[variable_id]
         data_path = os.path.join(self.data_dir, "set_c_merged.h5")
 
         with pd.HDFStore(data_path) as hdf_file:
@@ -114,7 +116,7 @@ class PhysionetDataset(MetaDataset):
         meta_test_tuples = []
 
         for patient in keys:
-            df = pd.read_hdf(data_path, patient)[variable].dropna()
+            df = pd.read_hdf(data_path, patient)[self.variable].dropna()
             times = df.index.values.astype(self.dtype)
             values = df.values.astype(self.dtype)
             times_context = [time for time in times if time <= n_samples_context]
@@ -124,8 +126,11 @@ class PhysionetDataset(MetaDataset):
                 times_test = np.array(times_test, dtype=self.dtype)
                 values_context = values[:len(times_context)]
                 values_test = values[len(times_context):]
-                meta_test_tuples.append((times_context, values_context,
-                                          times_test, values_test))
+                if values_context.shape[0] > 1:
+                    meta_test_tuples.append((times_context, values_context,
+                                              times_test, values_test))
+                else:
+                    continue
             if len(meta_test_tuples) >= n_tasks:
                 break
 
@@ -202,11 +207,11 @@ class MNISTRegressionDataset(MetaDataset):
 
 class SinusoidDataset(MetaDataset):
 
-    def __init__(self, amp_low=0.8, amp_high=1.2,
-                 period_low=1.0, period_high=1.0,
-                 x_shift_mean=0.0, x_shift_std=0.0,
-                 y_shift_mean=5.0, y_shift_std=0.05,
-                 slope_mean=0.2, slope_std=0.05,
+    def __init__(self, amp_low=0.7, amp_high=1.3,
+                 period_low=1.5, period_high=1.5,
+                 x_shift_mean=0.0, x_shift_std=0.1,
+                 y_shift_mean=5.0, y_shift_std=0.1,
+                 slope_mean=0.5, slope_std=0.2,
                  noise_std=0.1, x_low=-5, x_high=5, random_state=None):
 
         super().__init__(random_state)
@@ -235,7 +240,7 @@ class SinusoidDataset(MetaDataset):
         for i in range(n_tasks):
             f = self._sample_sinusoid()
             X = self.random_state.uniform(self.x_low, self.x_high, size=(n_samples, 1))
-            Y = f(X)
+            Y = f(X) + self.noise_std * self.random_state.normal(size=f(X).shape)
             meta_train_tuples.append((X, Y))
         return meta_train_tuples
 
@@ -246,6 +251,7 @@ class SinusoidDataset(MetaDataset):
         slope = self.random_state.normal(loc=self.slope_mean, scale=self.slope_std)
         period = self.random_state.uniform(self.period_low, self.period_high)
         return lambda x: slope * x + amplitude * np.sin(period * (x - x_shift)) + y_shift
+
 
 class SinusoidNonstationaryDataset(MetaDataset):
 
@@ -276,10 +282,12 @@ class SinusoidNonstationaryDataset(MetaDataset):
         return meta_train_tuples
 
     def _sample_fun(self):
-        slope = self.random_state.normal(loc=1, scale=0.2)
+        intersect = self.random_state.normal(loc=-2., scale=0.2)
+        slope = self.random_state.normal(loc=1, scale=0.3)
         freq = lambda x: 1 + np.abs(x)
-        mean = lambda x: slope * x
+        mean = lambda x: intersect + slope * x
         return lambda x: mean(x) + np.sin(freq(x) * x) + self.random_state.normal(loc=0, scale=self.noise_std, size=x.shape)
+
 
 class GPFunctionsDataset(MetaDataset):
 
@@ -322,9 +330,10 @@ class GPFunctionsDataset(MetaDataset):
         y = f + self.random_state.normal(scale=self.noise_std, size=f.shape)
         return y
 
+
 class CauchyDataset(MetaDataset):
 
-    def __init__(self, noise_std=0.05, ndim_x=1, random_state=None):
+    def __init__(self, noise_std=0.05, ndim_x=2, random_state=None):
         self.noise_std = noise_std
         self.ndim_x = ndim_x
         super().__init__(random_state)
@@ -366,26 +375,29 @@ class CauchyDataset(MetaDataset):
 
         K_ss = kernel(X, X, 0.5)
         L = np.linalg.cholesky(K_ss + 1e-8 * np.eye(n))
-        f = self._mean(X) + np.dot(L, self.random_state.normal(scale=0.15, size=(n, 1))).flatten()
+        f = self._mean(X) + np.dot(L, self.random_state.normal(scale=0.2, size=(n, 1))).flatten()
         y = f + self.random_state.normal(scale=self.noise_std, size=f.shape)
         return y.reshape(-1, 1)
-
 
 
 if __name__ == "__main__":
     x = np.linspace(-5, 5, num=200)
 
-    dataset = SinusoidDataset()
+    #dataset = SinusoidDataset()
+    #dataset = PhysionetDataset()
 
-    #dataset = CauchyDataset()
+    #dataset = SinusoidNonstationaryDataset()
+    dataset = CauchyDataset(noise_std=0.0)
 
 
     from matplotlib import pyplot as plt
 
-    meta_data = dataset.generate_meta_train_data(n_tasks=4, n_samples=50)
+    meta_data = dataset.generate_meta_train_data(n_tasks=5, n_samples=200)
+    meta_test_data = dataset.generate_meta_test_data(n_tasks=200, n_samples_context=10, n_samples_test=50)
 
     for x, y in meta_data:
         # func = dataset._sample_fun()
         # y = func(x)
-        plt.scatter(x[:], y)
+        idx = np.argsort(x, axis=0).flatten()
+        plt.plot(x[idx], y[idx])
     plt.show()
