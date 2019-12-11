@@ -13,7 +13,7 @@ from src.util import get_logger
 from experiments.util import *
 from experiments.data_sim import SinusoidNonstationaryDataset, MNISTRegressionDataset, PhysionetDataset, \
     GPFunctionsDataset, SinusoidDataset, CauchyDataset
-from src.GPR_meta_vi import GPRegressionMetaLearnedVI
+from src.GPR_meta_svgd import GPRegressionMetaLearnedSVGD
 
 import torch
 
@@ -30,16 +30,17 @@ flags.DEFINE_integer('num_layers', default=4, help='number of neural network lay
 flags.DEFINE_integer('layer_size', default=32, help='number of neural network layers for GP-prior NNs')
 
 flags.DEFINE_float('lr', default=1e-3, help='learning rate for AdamW optimizer')
-flags.DEFINE_float('lr_decay', 0.98, help='whether to use a learning rate scheduler')
+flags.DEFINE_float('lr_decay', 0.98, help='multiplicative learning rate decay factor applied after every 1000 steps')
 flags.DEFINE_string('optimizer', default='Adam', help='type of optimizer to use - either \'SGD\' or \'ADAM\'')
-flags.DEFINE_integer('svi_batch_size', default=10, help='number of posterior samples to estimate grads')
 flags.DEFINE_integer('task_batch_size', 2, help='batch size for meta training, i.e. number of tasks for computing grads')
 flags.DEFINE_integer('n_iter_fit', default=100000, help='number of gradient steps')
 
 flags.DEFINE_float('weight_prior_std', default=0.5, help='scale of hyper-prior distribution on NN weights')
 flags.DEFINE_float('prior_factor', default=0.1, help='factor weighting the importance of the hyper-prior relative to '
                                                      'the meta-likelihood')
-flags.DEFINE_string('cov_type', default='diag', help='type of VI posterior covariance matrix, either of [diag, full]')
+flags.DEFINE_string('kernel', default='RBF', help='SVGD kernel function')
+flags.DEFINE_float('bandwidth', default=0.1, help='Bandwidth of SVGD kernel function')
+flags.DEFINE_integer('num_particles', default=10, help='number of SVGD particles')
 
 # Configuration w.r.t. data
 flags.DEFINE_boolean('normalize_data', default=True, help='whether to normalize the data')
@@ -53,7 +54,6 @@ flags.DEFINE_integer('n_test_samples', default=500, help='number of test evaluat
 
 
 FLAGS = flags.FLAGS
-
 
 
 def main(argv):
@@ -84,7 +84,7 @@ def main(argv):
 
     torch.set_num_threads(FLAGS.n_threads)
 
-    gp_meta = GPRegressionMetaLearnedVI(data_train,
+    gp_meta = GPRegressionMetaLearnedSVGD(data_train,
                                         weight_prior_std=FLAGS.weight_prior_std,
                                         prior_factor=FLAGS.prior_factor,
                                         covar_module=FLAGS.covar_module,
@@ -96,25 +96,22 @@ def main(argv):
                                         lr=FLAGS.lr,
                                         lr_decay=FLAGS.lr_decay,
                                         num_iter_fit=FLAGS.n_iter_fit,
-                                        svi_batch_size=FLAGS.svi_batch_size,
+                                        kernel=FLAGS.kernel,
+                                        bandwidth=FLAGS.bandwidth,
+                                        num_particles=FLAGS.num_particles,
                                         normalize_data=FLAGS.normalize_data,
-                                        cov_type=FLAGS.cov_type,
                                         task_batch_size=FLAGS.task_batch_size
                                       )
 
     gp_meta.meta_fit(valid_tuples=data_test[:100], log_period=1000)
 
-    test_ll_bayes, rmse_bayes, calib_err_bayes = gp_meta.eval_datasets(data_test, mode='Bayes')
-    test_ll_map, rmse_map, calib_err_map = gp_meta.eval_datasets(data_test, mode='MAP')
+    test_ll, rmse, calib_err = gp_meta.eval_datasets(data_test)
 
     # save results
     results_dict = {
-        'test_ll_bayes': test_ll_bayes,
-        'test_rmse_bayes': rmse_bayes,
-        'calib_err_bayes': calib_err_bayes,
-        'test_ll_map': test_ll_map,
-        'rmse_map': rmse_map,
-        'calib_err_map': calib_err_map
+        'test_ll': test_ll,
+        'test_rmse': rmse,
+        'calib_err': calib_err
     }
     print(results_dict)
     save_results(results_dict, exp_dir, log=True)

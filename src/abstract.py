@@ -63,7 +63,7 @@ class RegressionModel:
         # save mean and variance of data for normalization
         if self.normalize_data:
             self.x_mean, self.y_mean = np.mean(X, axis=0), np.mean(Y, axis=0)
-            self.x_std, self.y_std = np.std(X, axis=0), np.std(Y, axis=0)
+            self.x_std, self.y_std = np.std(X, axis=0) + 1e-8, np.std(Y, axis=0) + 1e-8
         else:
             self.x_mean, self.y_mean = np.zeros(X.shape[1]), np.zeros(Y.shape[1])
             self.x_std, self.y_std = np.ones(X.shape[1]), np.ones(Y.shape[1])
@@ -197,7 +197,7 @@ class RegressionModelMetaLearned:
 
         if self.normalize_data:
             self.x_mean, self.y_mean = np.mean(X, axis=0), np.mean(Y, axis=0)
-            self.x_std, self.y_std = np.std(X, axis=0), np.std(Y, axis=0)
+            self.x_std, self.y_std = np.std(X, axis=0) + 1e-8, np.std(Y, axis=0) + 1e-8
         else:
             self.x_mean, self.y_mean = np.zeros(X.shape[1]), np.zeros(Y.shape[1])
             self.x_std, self.y_std = np.ones(X.shape[1]), np.ones(Y.shape[1])

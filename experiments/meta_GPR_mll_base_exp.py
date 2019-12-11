@@ -11,7 +11,7 @@ import numpy as np
 from src.util import get_logger
 from experiments.util import *
 from experiments.data_sim import SinusoidNonstationaryDataset, MNISTRegressionDataset, \
-    PhysionetDataset, GPFunctionsDataset
+    PhysionetDataset, GPFunctionsDataset, SinusoidDataset, CauchyDataset
 from src.GPR_meta_mll import GPRegressionMetaLearned
 
 import torch
@@ -23,16 +23,18 @@ flags.DEFINE_integer('seed', default=28, help='random seed')
 flags.DEFINE_integer('n_threads', default=4, help='number of threads')
 
 # Configuration for GP-Prior learning
-flags.DEFINE_float('weight_decay', default=0.0, help='weight decay for meta-learning the prior')
-flags.DEFINE_integer("n_iter_fit", default=100000, help='number of gradient steps')
 flags.DEFINE_string('learning_mode', default='both', help='specifies what to use as mean function of the GP prior')
 flags.DEFINE_string('mean_module', default='constant', help='specifies what to use as mean function of the GP prior')
 flags.DEFINE_string('covar_module', default='SE', help='specifies what to use as kernel function of the GP prior')
-flags.DEFINE_integer('num_layers', default=3, help='number of neural network layers for GP-prior NNs')
+flags.DEFINE_integer('num_layers', default=4, help='number of neural network layers for GP-prior NNs')
 flags.DEFINE_integer('layer_size', default=128, help='number of neural network layers for GP-prior NNs')
+
+flags.DEFINE_float('weight_decay', default=0.0, help='weight decay for meta-learning the prior')
 flags.DEFINE_float('lr', default=1e-3, help='learning rate for AdamW optimizer')
-flags.DEFINE_integer('batch_size', 20, help='batch size for meta training, i.e. number of tasks for computing grads')
+flags.DEFINE_float('lr_decay', 0.98, help='multiplicative learning rate decay factor applied after every 1000 steps')
+flags.DEFINE_integer('batch_size', 2, help='batch size for meta training, i.e. number of tasks for computing grads')
 flags.DEFINE_string('optimizer', default='Adam', help='type of optimizer to use - either \'SGD\' or \'ADAM\'')
+flags.DEFINE_integer('n_iter_fit', default=100000, help='number of gradient steps')
 
 # Configuration w.r.t. data
 flags.DEFINE_boolean('normalize_data', default=True, help='whether to normalize the data')
@@ -54,6 +56,10 @@ def main(argv):
 
     if FLAGS.dataset == 'sin-nonstat':
         dataset = SinusoidNonstationaryDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
+    elif FLAGS.dataset == 'sin':
+        dataset = SinusoidDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
+    elif FLAGS.dataset == 'cauchy':
+        dataset = CauchyDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
     elif FLAGS.dataset == 'mnist':
         dataset = MNISTRegressionDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
     elif FLAGS.dataset == 'physionet':
@@ -80,20 +86,22 @@ def main(argv):
                                       mean_nn_layers=nn_layers,
                                       weight_decay=FLAGS.weight_decay,
                                       lr_params=FLAGS.lr,
+                                      lr_decay=FLAGS.lr_decay,
                                       random_seed=FLAGS.seed,
                                       task_batch_size=FLAGS.batch_size,
                                       optimizer=FLAGS.optimizer,
                                       normalize_data=FLAGS.normalize_data
                                       )
 
-    gp_meta.meta_fit(valid_tuples=data_test[:100], log_period=500)
+    gp_meta.meta_fit(valid_tuples=data_test[:100], log_period=2000)
 
-    test_ll, rmse = gp_meta.eval_datasets(data_test)
+    test_ll, rmse, calib_err = gp_meta.eval_datasets(data_test)
 
     # save results
     results_dict = {
         'test_ll': test_ll,
-        'test_rmse': rmse
+        'test_rmse': rmse,
+        'calib_err': calib_err
     }
     print(results_dict)
     save_results(results_dict, exp_dir, log=True)
