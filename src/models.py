@@ -216,6 +216,16 @@ class NeuralNetwork(torch.nn.Sequential):
         output = getattr(self, self.prefix + 'out')(output)
         return output
 
+    def forward_parametrized(self, x, params):
+        output = x
+        param_idx = 0
+        for i in range(1, self.n_layers + 1):
+            output = F.linear(output, params[param_idx], params[param_idx+1])
+            output = self.nonlinearlity(output)
+            param_idx += 2
+        output = F.linear(output, params[param_idx], params[param_idx+1])
+        return output
+
 """ ----------------------------------------------------"""
 """ ------------ Vectorized Neural Network -------------"""
 """ ----------------------------------------------------"""

@@ -131,7 +131,7 @@ class RegressionModelMetaLearned:
     def predict(self, context_x, context_y, test_x, **kwargs):
         raise NotImplementedError
 
-    def eval(self, context_x, context_y, test_x, test_t, **kwargs):
+    def eval(self, context_x, context_y, test_x, test_y, **kwargs):
         """
         Computes the average test log likelihood, rmse and calibration error n test data
 
@@ -139,23 +139,23 @@ class RegressionModelMetaLearned:
             context_x: (ndarray) context input data for which to compute the posterior
             context_y: (ndarray) context targets for which to compute the posterior
             test_x: (ndarray) test input data of shape (n_samples, ndim_x)
-            test_t: (ndarray) test target data of shape (n_samples, 1)
+            test_y: (ndarray) test target data of shape (n_samples, 1)
 
         Returns: (avg_log_likelihood, rmse, calibr_error)
 
         """
 
         context_x, context_y = _handle_input_dimensionality(context_x, context_y)
-        test_x, test_t = _handle_input_dimensionality(test_x, test_t)
-        test_t_tensor = torch.from_numpy(test_t).float().flatten().to(device)
+        test_x, test_y = _handle_input_dimensionality(test_x, test_y)
+        test_y_tensor = torch.from_numpy(test_y).float().flatten().to(device)
 
         with torch.no_grad():
             pred_dist = self.predict(context_x, context_y, test_x, return_density=True, **kwargs)
-            avg_log_likelihood = pred_dist.log_prob(test_t_tensor) / test_t_tensor.shape[0]
-            rmse = torch.mean(torch.pow(pred_dist.mean - test_t_tensor, 2)).sqrt()
+            avg_log_likelihood = pred_dist.log_prob(test_y_tensor) / test_y_tensor.shape[0]
+            rmse = torch.mean(torch.pow(pred_dist.mean - test_y_tensor, 2)).sqrt()
 
             pred_dist_vect = self._vectorize_pred_dist(pred_dist)
-            calibr_error = self._calib_error(pred_dist_vect, test_t_tensor)
+            calibr_error = self._calib_error(pred_dist_vect, test_y_tensor)
 
             return avg_log_likelihood.cpu().item(), rmse.cpu().item(), calibr_error.cpu().item()
 
