@@ -1,6 +1,8 @@
 import time
 import torch.nn as nn
 import math
+import torch
+import numpy as np
 
 from src.models import NeuralNetwork
 from src.abstract import RegressionModelMetaLearned
@@ -196,12 +198,10 @@ class MAMLRegression(RegressionModelMetaLearned):
             self.lr_scheduler = DummyLRScheduler()
 
     def _inner_steps(self, x_data, y_data):
-        # randomly split data into two parts
+        # split data into two parts
         idx_split = math.ceil(x_data.shape[0] / 2.0)
-        idx_shuffled = torch.randperm(x_data.shape[0])
-        idx_1 , idx_2 = idx_shuffled[:idx_split], idx_shuffled[idx_split:]
-        x_1, y_1 = x_data[idx_1], y_data[idx_1] # data for inner update
-        x_2, y_2 = x_data[idx_2], y_data[idx_2] # data for computing meta loss
+        x_1, y_1 = x_data[:idx_split], y_data[:idx_split] # data for inner update
+        x_2, y_2 = x_data[idx_split:], y_data[idx_split:] # data for computing meta loss
 
         # clone initial parameters
         temp_params = [param.clone() for param in self.initial_params]
