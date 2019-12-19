@@ -66,7 +66,7 @@ class PhysionetDataset(MetaDataset):
         returned list will contain less than n_tasks tuples.
         """
 
-        assert n_tasks < 500, "We don't have that many tasks"
+        assert n_tasks <= 500, "We don't have that many tasks"
         assert n_samples < 48, "We don't have that many samples"
 
         meta_train_tuples = []
@@ -103,7 +103,7 @@ class PhysionetDataset(MetaDataset):
         returned list will contain less than n_tasks tuples.
         """
 
-        assert n_tasks < 1000, "We don't have that many tasks"
+        assert n_tasks <= 1000, "We don't have that many tasks"
         assert n_samples_context < 48, "We don't have that many samples"
 
         meta_test_tuples = []
