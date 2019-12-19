@@ -35,7 +35,7 @@ class MetaDataset():
         
 class PhysionetDataset(MetaDataset):
     
-    def __init__(self, random_state=None, variable_id=10, dtype=np.float32, physionet_dir=None):
+    def __init__(self, random_state=None, variable_id=0, dtype=np.float32, physionet_dir=None):
         super().__init__(random_state)
         self.dtype = dtype
         if physionet_dir is not None:
@@ -44,14 +44,15 @@ class PhysionetDataset(MetaDataset):
             self.data_dir = PHYSIONET_DIR
         else:
             raise ValueError("No data directory provided.")
-        self.variable_list = ['ALP','ALT','AST','Albumin','BUN','Bilirubin','Cholesterol',
-                            'Creatinine','DiasABP','FiO2','GCS','Glucose','HCO3','HCT','HR',
-                            'K','Lactate','MAP','MechVent','Mg','NIDiasABP','NIMAP','NISysABP',
-                            'Na','PaCO2','PaO2','Platelets','RespRate','SaO2','SysABP',
-                            'Temp','TroponinI','TroponinT','Urine','WBC','pH']
+        self.variable_list = ['GCS', 'Urine', 'HCT', 'BUN', 'Creatinine', 'DiasABP']
 
         assert variable_id < len(self.variable_list), "Unknown variable ID"
         self.variable = self.variable_list[variable_id]
+
+        self.data_path = os.path.join(self.data_dir, "set_a_merged.h5")
+
+        with pd.HDFStore(self.data_path, mode='r') as hdf_file:
+            self.keys = hdf_file.keys()
             
             
     def generate_meta_train_data(self, n_tasks, n_samples=47):
@@ -65,30 +66,26 @@ class PhysionetDataset(MetaDataset):
         returned list will contain less than n_tasks tuples.
         """
 
-        assert n_tasks < 2000, "We don't have that many tasks"
+        assert n_tasks < 500, "We don't have that many tasks"
         assert n_samples < 48, "We don't have that many samples"
-        data_path = os.path.join(self.data_dir, "set_a_merged.h5")
-        
-        with pd.HDFStore(data_path) as hdf_file:
-            keys = hdf_file.keys()
-                    
+
         meta_train_tuples = []
         
-        for patient in keys:
-            df = pd.read_hdf(data_path, patient)[self.variable].dropna()
+        for patient in self.keys:
+            df = pd.read_hdf(self.data_path, patient, mode='r')[self.variable].dropna()
             times = df.index.values.astype(self.dtype)
             values = df.values.astype(self.dtype)
             times_context = [time for time in times if time <= n_samples]
             if len(times_context) > 0:
                 times_context = np.array(times_context, dtype=self.dtype)
                 values_context = values[:len(times_context)]
-                if values_context.shape[0] > 1:
+                if values_context.shape[0] >= 4:
                     meta_train_tuples.append((times_context, values_context))
                 else:
                     continue
             if len(meta_train_tuples) >= n_tasks:
                 break
-                
+
         return meta_train_tuples
         
         
@@ -106,17 +103,13 @@ class PhysionetDataset(MetaDataset):
         returned list will contain less than n_tasks tuples.
         """
 
-        assert n_tasks < 2000, "We don't have that many tasks"
+        assert n_tasks < 1000, "We don't have that many tasks"
         assert n_samples_context < 48, "We don't have that many samples"
-        data_path = os.path.join(self.data_dir, "set_c_merged.h5")
-
-        with pd.HDFStore(data_path) as hdf_file:
-            keys = hdf_file.keys()
 
         meta_test_tuples = []
 
-        for patient in keys:
-            df = pd.read_hdf(data_path, patient)[self.variable].dropna()
+        for patient in reversed(self.keys):
+            df = pd.read_hdf(self.data_path, patient, mode='r')[self.variable].dropna()
             times = df.index.values.astype(self.dtype)
             values = df.values.astype(self.dtype)
             times_context = [time for time in times if time <= n_samples_context]
@@ -126,7 +119,7 @@ class PhysionetDataset(MetaDataset):
                 times_test = np.array(times_test, dtype=self.dtype)
                 values_context = values[:len(times_context)]
                 values_test = values[len(times_context):]
-                if values_context.shape[0] > 1:
+                if values_context.shape[0] >= 4:
                     meta_test_tuples.append((times_context, values_context,
                                               times_test, values_test))
                 else:
@@ -384,20 +377,29 @@ if __name__ == "__main__":
     x = np.linspace(-5, 5, num=200)
 
     #dataset = SinusoidDataset()
-    #dataset = PhysionetDataset()
+
 
     #dataset = SinusoidNonstationaryDataset()
-    dataset = CauchyDataset(noise_std=0.0)
+    #dataset = SinusoidDataset(noise_std=0.0, x_shift_std=0.3)
 
 
     from matplotlib import pyplot as plt
 
-    meta_data = dataset.generate_meta_train_data(n_tasks=5, n_samples=200)
-    meta_test_data = dataset.generate_meta_test_data(n_tasks=200, n_samples_context=10, n_samples_test=50)
 
-    for x, y in meta_data:
-        # func = dataset._sample_fun()
-        # y = func(x)
-        idx = np.argsort(x, axis=0).flatten()
-        plt.plot(x[idx], y[idx])
-    plt.show()
+    for i in range(5):
+        dataset = PhysionetDataset(variable_id=i)
+        meta_data = dataset.generate_meta_train_data(n_tasks=400, n_samples=47)
+        data_size = [x.shape[0] for x, y in meta_data]
+        variable_name = dataset.variable_list[i]
+        plt.hist(data_size)
+        plt.title(variable_name)
+        plt.show()
+        meta_test_data = dataset.generate_meta_test_data(n_tasks=600, n_samples_context=10, n_samples_test=50)
+
+
+    # for x, y in meta_data:
+    #     # func = dataset._sample_fun()
+    #     # y = func(x)
+    #     idx = np.argsort(x, axis=0).flatten()
+    #     plt.plot(x[idx], y[idx])
+    # plt.show()
