@@ -27,14 +27,13 @@ TEST_SEEDS = [28, 29, 30, 31, 32]
 
 
 def main(args):
-    ray.init(num_cpus=args.num_cpus)
+    ray.init(num_cpus=args.num_cpus, memory=3000 * 1024**2, object_store_memory=300 * 1024**2)
 
     def train_reg(config, reporter):
-        print(config)
         sys.path.append(BASE_DIR)
 
         # 1) load / generate data
-        from experiments.hyperparam_search.util import provide_data
+        from experiments.data_sim import provide_data
         data_train, data_valid, _ = provide_data(dataset=args.dataset)
 
         # 2) setup model
@@ -62,7 +61,7 @@ def main(args):
             sys.path.append(BASE_DIR)
 
             # 1) load / generate data
-            from experiments.hyperparam_search.util import provide_data
+            from experiments.data_sim import provide_data
             data_train, data_valid, data_test = provide_data(dataset=args.dataset)
 
             # 2) Fit model
@@ -90,7 +89,7 @@ def main(args):
     }
 
     config = {
-            "num_samples": 300,
+            "num_samples": 240,
             "config": {
                 "num_iter_fit": 25000,
                 'kernel_nn_layers': [32, 32, 32, 32],
@@ -100,7 +99,7 @@ def main(args):
                 'covar_module': args.covar_module
             },
             "stop": {
-                "timesteps_total": 500
+                "timesteps_total": 25000
             },
         }
 
