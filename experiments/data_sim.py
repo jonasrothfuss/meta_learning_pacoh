@@ -373,6 +373,55 @@ class CauchyDataset(MetaDataset):
         return y.reshape(-1, 1)
 
 
+""" Pendulum Dataset """
+from gym.envs.classic_control import PendulumEnv
+
+class PendulumDataset(MetaDataset):
+
+    def __init__(self, l_range=(0.6, 1.4), m_range=(0.6, 1.4), random_state=None):
+        self.l_range = l_range
+        self.m_range = m_range
+        super().__init__(random_state)
+
+    def generate_meta_train_data(self, n_tasks, n_samples):
+        meta_train_tuples = []
+        for i in range(n_tasks):
+            env = self._sample_env()
+            X, Y = self._sample_trajectory(env, n_samples)
+            del env
+            meta_train_tuples.append((X, Y))
+        return meta_train_tuples
+
+    def generate_meta_test_data(self, n_tasks, n_samples_context, n_samples_test):
+        assert n_samples_test > 0
+        meta_test_tuples = []
+        for i in range(n_tasks):
+            env = self._sample_env()
+            X, Y = self._sample_trajectory(env, n_samples_context+n_samples_test)
+            meta_test_tuples.append(
+                (X[:n_samples_context], Y[:n_samples_context], X[n_samples_context:], Y[n_samples_context:]))
+
+        return meta_test_tuples
+
+    def _sample_env(self):
+        env = PendulumEnv()
+        env.l = self.random_state.uniform(*self.l_range)
+        env.m = self.random_state.uniform(*self.m_range)
+        env.seed(self.random_state.randint(0, 10**6))
+        return env
+
+    def _sample_trajectory(self, env, length):
+        states = np.empty((length+1, 3))
+        actions = np.empty((length, 1))
+        states[0] = env.reset()
+        for i in range(length):
+            a = self.random_state.uniform(env.action_space.low, env.action_space.high)
+            s, _, _, _ = env.step(a)  # take a random action
+            states[i+1], actions[i] = s, a
+        x = np.concatenate([states[:-1], actions], axis=-1)
+        y = states[1:]
+        return x, y
+
 def provide_data(dataset, seed=28, n_train_tasks=None, n_samples=None):
     import numpy as np
 
@@ -439,6 +488,7 @@ def provide_data(dataset, seed=28, n_train_tasks=None, n_samples=None):
         n_train_tasks = 200
         N_VALID_TASKS = N_TEST_TASKS = 500
 
+    # TODO add pendulum dataset to provider
 
     else:
         raise NotImplementedError('Does not recognize dataset flag')
@@ -469,7 +519,7 @@ if __name__ == "__main__":
 
 
     for i in range(5):
-        dataset = PhysionetDataset(variable_id=i)
+        dataset = PendulumDataset()
         meta_data = dataset.generate_meta_train_data(n_tasks=400, n_samples=47)
         data_size = [x.shape[0] for x, y in meta_data]
         variable_name = dataset.variable_list[i]

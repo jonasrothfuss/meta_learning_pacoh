@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 
 from experiments.data_sim import SinusoidDataset, SinusoidNonstationaryDataset, MNISTRegressionDataset, \
-    GPFunctionsDataset, CauchyDataset
+    GPFunctionsDataset, CauchyDataset, PendulumDataset
 
 class TestSinusoidDataset(unittest.TestCase):
 
@@ -175,3 +175,25 @@ class TestCauchyDataset(unittest.TestCase):
             for train_tuple_1, train_tuple_2 in zip(data_train_1, data_train_2):
                 for data_array_1, data_array_2 in zip(train_tuple_1, train_tuple_2):
                     assert np.array_equal(data_array_1, data_array_2)
+
+
+class TestPendulumDataset(unittest.TestCase):
+
+    def test_seed_reproducability(self):
+        rds = np.random.RandomState(55)
+        dataset = PendulumDataset(random_state=rds)
+        data_test_1 = dataset.generate_meta_test_data(n_tasks=2, n_samples_context=5, n_samples_test=10)
+        data_train_1 = dataset.generate_meta_train_data(n_tasks=5, n_samples=20)
+
+        rds = np.random.RandomState(55)
+        dataset = PendulumDataset(random_state=rds)
+        data_test_2 = dataset.generate_meta_test_data(n_tasks=2, n_samples_context=5, n_samples_test=10)
+        data_train_2 = dataset.generate_meta_train_data(n_tasks=5, n_samples=20)
+
+        for test_tuple_1, test_tuple_2 in zip(data_test_1, data_test_2):
+            for data_array_1, data_array_2 in zip(test_tuple_1, test_tuple_2):
+                assert np.array_equal(data_array_1, data_array_2)
+
+        for train_tuple_1, train_tuple_2 in zip(data_train_1, data_train_2):
+            for data_array_1, data_array_2 in zip(train_tuple_1, train_tuple_2):
+                assert np.array_equal(data_array_1, data_array_2)
