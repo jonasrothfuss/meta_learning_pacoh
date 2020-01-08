@@ -206,12 +206,12 @@ class RandomGPMeta(_RandomGPBase):
         harmonic_mean_dataset_size = 1. / (torch.mean(1. / dataset_sizes))
         pre_factor = harmonic_mean_dataset_size / (harmonic_mean_dataset_size + num_datasets)
 
-        mlls_normalized = []
+        mlls = []
         for i, (x_data, y_data) in enumerate(train_data_tuples):
             _, mll = fn(x_data, y_data)
-            mlls_normalized.append(mll / dataset_sizes[i])
-        mlls_normalized = torch.stack(mlls_normalized, dim=-1)
-        return pre_factor * torch.sum(mlls_normalized, dim=-1)
+            mlls.append(mll)
+        mlls = torch.stack(mlls, dim=-1)
+        return pre_factor * torch.sum(mlls, dim=-1)
 
     def log_prob(self, params, train_data_tuples):
         return self.prior_factor * self._log_prob_prior(params) + self._log_prob_likelihood(params, train_data_tuples)
