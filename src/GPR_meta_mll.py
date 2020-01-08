@@ -111,7 +111,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
 
                     output = task_dict['model'](task_dict['train_x'])
                     mll = task_dict['mll_fn'](output, task_dict['train_y'])
-                    loss -= mll / task_dict['train_x'].shape[0]
+                    loss -= mll
 
                 loss.backward()
                 self.optimizer.step()
