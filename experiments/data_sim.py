@@ -558,7 +558,10 @@ def provide_data(dataset, seed=28, n_train_tasks=None, n_samples=None):
     N_TEST_SAMPLES = 200
 
     """ Prepare Data """
-    if dataset == 'sin-nonstat':
+    if 'sin-nonstat' in dataset:
+        if len(dataset.split('_')) == 2:
+            n_train_tasks = int(dataset.split('_')[-1])
+
         dataset = SinusoidNonstationaryDataset(random_state=np.random.RandomState(seed + 1))
 
         if n_samples is None:
@@ -568,7 +571,10 @@ def provide_data(dataset, seed=28, n_train_tasks=None, n_samples=None):
 
         if n_train_tasks is None: n_train_tasks = 20
 
-    elif dataset == 'sin':
+    elif 'sin' in dataset:
+        if len(dataset.split('_')) == 2:
+            n_train_tasks = int(dataset.split('_')[-1])
+
         dataset = SinusoidDataset(random_state=np.random.RandomState(seed + 1))
 
         if n_samples is None:
@@ -578,7 +584,7 @@ def provide_data(dataset, seed=28, n_train_tasks=None, n_samples=None):
 
         if n_train_tasks is None: n_train_tasks = 20
 
-    elif dataset == 'gp-funcs':
+    elif 'gp_funcs' in dataset:
         dataset = GPFunctionsDataset(random_state=np.random.RandomState(seed + 1))
 
         if n_samples is None:
@@ -588,7 +594,10 @@ def provide_data(dataset, seed=28, n_train_tasks=None, n_samples=None):
 
         if n_train_tasks is None: n_train_tasks = 20
 
-    elif dataset == 'cauchy':
+    elif 'cauchy' in dataset:
+        if len(dataset.split('_')) == 2:
+            n_train_tasks = int(dataset.split('_')[-1])
+
         dataset = CauchyDataset(random_state=np.random.RandomState(seed + 1))
 
         if n_samples is None:
@@ -663,6 +672,6 @@ if __name__ == "__main__":
     x = np.linspace(-5, 5, num=200)
 
 
-    data_train, data_valid, data_test = provide_data('swissfel', seed=29)
+    data_train, data_valid, data_test = provide_data('sin_10', seed=29)
 
     print(data_train)
