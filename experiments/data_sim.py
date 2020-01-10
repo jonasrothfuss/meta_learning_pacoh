@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 from scipy.stats import truncnorm
 import os
+import h5py
+import yaml
+import copy
 
 
 X_LOW = -5
@@ -15,6 +18,7 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_DIR, 'data')
 MNIST_DIR = os.path.join(DATA_DIR, 'mnist')
 PHYSIONET_DIR = os.path.join(DATA_DIR, 'physionet2012')
+SWISSFEL_DIR = os.path.join(DATA_DIR, 'swissfel')
 
 class MetaDataset():
 
@@ -373,6 +377,126 @@ class CauchyDataset(MetaDataset):
         return y.reshape(-1, 1)
 
 
+""" Swissfel Dataset"""
+
+class SwissfelDataset(MetaDataset):
+
+    runs_12dim = [
+        {'experiment': '2018_10_31/line_ucb_ascent', 'run': 0},
+        {'experiment': '2018_10_31/line_ucb_ascent', 'run': 1},
+        {'experiment': '2018_10_31/line_ucb_ascent', 'run': 2},
+        {'experiment': '2018_10_31/line_ucb', 'run': 0},
+        {'experiment': '2018_10_31/line_ucb', 'run': 1},
+        {'experiment': '2018_10_31/line_ucb', 'run': 2},
+        {'experiment': '2018_10_31/neldermead', 'run': 0},
+        {'experiment': '2018_10_31/neldermead', 'run': 1},
+        {'experiment': '2018_10_31/neldermead', 'run': 2},
+    ]
+
+    runs_24dim = [
+        {'experiment': '2018_11_01/line_ucb_ascent_bpm_24', 'run': 0},
+        {'experiment': '2018_11_01/line_ucb_ascent_bpm_24', 'run': 1},
+        {'experiment': '2018_11_01/line_ucb_ascent_bpm_24', 'run': 3},
+        {'experiment': '2018_11_01/line_ucb_ascent_bpm_24_small', 'run': 0},
+        {'experiment': '2018_11_01/lipschitz_line_ucb_bpm_24', 'run': 0},
+        {'experiment': '2018_11_01/neldermead_bpm_24', 'run': 0},
+        {'experiment': '2018_11_01/neldermead_bpm_24', 'run': 1},
+        {'experiment': '2018_11_01/parameter_scan_bpm_24', 'run': 0},
+    ]
+
+
+    def __init__(self, random_state=None, param_space_id=0, swissfel_dir=None):
+        super().__init__(random_state)
+
+
+        self.swissfel_dir = SWISSFEL_DIR if swissfel_dir is None else swissfel_dir
+
+        if param_space_id == 0:
+            run_specs = copy.deepcopy(self.runs_12dim)
+        elif param_space_id == 1:
+            run_specs = copy.deepcopy(self.runs_24dim)
+        else:
+            raise NotImplementedError
+
+        self.random_state.shuffle(run_specs)
+        self.run_specs_train = run_specs[:5]
+        self.run_specs_test = run_specs[5:]
+
+    def _load_data(self, experiment, run=0):
+        path = os.path.join(self.swissfel_dir, experiment)
+
+        # read hdf5
+        hdf5_path = os.path.join(path, 'data/evaluations.hdf5')
+        dset = h5py.File(hdf5_path, 'r')
+        run = str(run)
+        data = dset['1'][run][()]
+        dset.close()
+
+        # read config and recover parameter names
+
+        config_path = os.path.join(path, 'experiment.yaml')
+        config_file = open(config_path, 'r')  # 'document.yaml' contains a single YAML document.
+
+        # get config files for parameters
+        files = yaml.load(config_file)['swissfel.interface']['channel_config_set']
+        if not isinstance(files, list):
+            files = [files]
+
+        files += ['channel_config_set.txt']  # backwards compatibility
+
+        parameters = []
+        for file in files:
+            params_path = os.path.join(path, 'sf', os.path.split(file)[1])
+            if not os.path.exists(params_path):
+                continue
+
+            frame = pd.read_csv(params_path, comment='#')
+
+            parameters += frame['pv'].tolist()
+
+        return data, parameters
+
+    def _load_meta_dataset(self, train=True):
+        run_specs = self.run_specs_train if train else self.run_specs_test
+        data_tuples = []
+        for run_spec in run_specs:
+            data, parameters = self._load_data(**run_spec)
+            data_tuples.append((data['x'], data['y']))
+
+        assert len(set([X.shape[-1] for X, _ in data_tuples])) == 1
+        assert all([X.shape[0] == Y.shape[0] for X, Y in data_tuples])
+        return data_tuples
+
+    def generate_meta_train_data(self, n_tasks=5, n_samples=200):
+        assert n_tasks == len(self.run_specs_train), "number of tasks must be %i"%len(self.run_specs_train)
+        meta_train_tuples = self._load_meta_dataset(train=True)
+
+        max_n_samples = max([X.shape[0] for X, _ in meta_train_tuples])
+        assert n_samples <= max_n_samples, 'only %i number of samples available'%max_n_samples
+
+        meta_train_tuples = [(X[:n_samples], Y[:n_samples])for X, Y in meta_train_tuples]
+
+        return meta_train_tuples
+
+    def generate_meta_test_data(self, n_tasks=None, n_samples_context=200, n_samples_test=400):
+        if n_tasks is None:
+            n_tasks = len(self.run_specs_test)
+
+        assert n_tasks == len(self.run_specs_test), "number of tasks must be %i"%len(self.run_specs_test)
+        meta_test_tuples = self._load_meta_dataset(train=False)
+
+        max_n_samples = min([X.shape[0] for X, _ in meta_test_tuples])
+        assert n_samples_context + n_samples_test <= max_n_samples, 'only %i number of samples available' % max_n_samples
+
+        idx = np.arange(n_samples_context + n_samples_test)
+        self.random_state.shuffle(idx)
+        idx_context, idx_test = idx[:n_samples_context], idx[n_samples_context:]
+
+        meta_test_tuples = [(X[idx_context], Y[idx_context], X[idx_test], Y[idx_test]) for X, Y in meta_test_tuples]
+
+        return meta_test_tuples
+
+
 """ Pendulum Dataset """
 from gym.envs.classic_control import PendulumEnv
 
@@ -421,6 +545,9 @@ class PendulumDataset(MetaDataset):
         x = np.concatenate([states[:-1], actions], axis=-1)
         y = states[1:]
         return x, y
+
+
+""" Data provider """
 
 def provide_data(dataset, seed=28, n_train_tasks=None, n_samples=None):
     import numpy as np
@@ -488,7 +615,35 @@ def provide_data(dataset, seed=28, n_train_tasks=None, n_samples=None):
         n_train_tasks = 200
         N_VALID_TASKS = N_TEST_TASKS = 500
 
-    # TODO add pendulum dataset to provider
+    elif dataset == 'pendulum':
+        dataset = PendulumDataset(random_state=np.random.RandomState(seed + 1))
+
+        if n_train_tasks is None: n_train_tasks = 10
+
+        if n_samples is None:
+            n_train_samples = n_context_samples = 20
+        else:
+            n_train_samples = n_context_samples = n_samples
+
+
+    elif dataset == 'swissfel':
+        dataset = SwissfelDataset(random_state=np.random.RandomState(seed + 1))
+        if n_train_tasks is None: n_train_tasks = 5
+
+        if n_samples is None:
+            n_train_samples = n_context_samples = 200
+        else:
+            n_train_samples = n_context_samples = n_samples
+
+        N_TEST_SAMPLES = 200
+
+        data_train = dataset.generate_meta_train_data(n_tasks=n_train_tasks, n_samples=n_train_samples)
+
+        data_test_valid = dataset.generate_meta_test_data(n_samples_context=n_context_samples,
+                                                          n_samples_test=N_TEST_SAMPLES)
+
+        # swissfel data doesn't have enough datasets to allow for a proper valid / test split
+        return data_train, data_test_valid, data_test_valid
 
     else:
         raise NotImplementedError('Does not recognize dataset flag')
@@ -504,34 +659,10 @@ def provide_data(dataset, seed=28, n_train_tasks=None, n_samples=None):
     return data_train, data_valid, data_test
 
 
-
 if __name__ == "__main__":
     x = np.linspace(-5, 5, num=200)
 
-    #dataset = SinusoidDataset()
 
+    data_train, data_valid, data_test = provide_data('swissfel', seed=29)
 
-    #dataset = SinusoidNonstationaryDataset()
-    #dataset = SinusoidDataset(noise_std=0.0, x_shift_std=0.3)
-
-
-    from matplotlib import pyplot as plt
-
-
-    for i in range(5):
-        dataset = PendulumDataset()
-        meta_data = dataset.generate_meta_train_data(n_tasks=400, n_samples=47)
-        data_size = [x.shape[0] for x, y in meta_data]
-        variable_name = dataset.variable_list[i]
-        plt.hist(data_size)
-        plt.title(variable_name)
-        plt.show()
-        meta_test_data = dataset.generate_meta_test_data(n_tasks=600, n_samples_context=10, n_samples_test=50)
-
-
-    # for x, y in meta_data:
-    #     # func = dataset._sample_fun()
-    #     # y = func(x)
-    #     idx = np.argsort(x, axis=0).flatten()
-    #     plt.plot(x[idx], y[idx])
-    # plt.show()
+    print(data_train)
