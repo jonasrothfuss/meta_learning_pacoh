@@ -62,7 +62,7 @@ def main(args):
 
             # 1) load / generate data
             from experiments.data_sim import provide_data
-            data_train, _, data_test = provide_data(dataset=args.dataset)
+            data_train, _, data_test = provide_data(dataset=args.dataset, seed=SEED)
 
             # 2) Fit model
             from src.GPR_meta_vi import GPRegressionMetaLearnedVI

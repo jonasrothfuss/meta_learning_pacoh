@@ -34,7 +34,7 @@ def main(args):
 
         # 1) load / generate data
         from experiments.data_sim import provide_data
-        data_train, data_valid, _ = provide_data(dataset=args.dataset)
+        data_train, data_valid, _ = provide_data(dataset=args.dataset, seed=SEED)
 
         # 2) setup model
         from src.GPR_meta_mll import GPRegressionMetaLearned
