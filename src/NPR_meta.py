@@ -22,7 +22,7 @@ from config import device
 
 class NPRegressionMetaLearned(RegressionModelMetaLearned):
 
-    def __init__(self, meta_train_data, num_context, num_extra_target, lr_params=1e-3, r_dim=50, z_dim=50, h_dim=50, num_iter_fit=10000,
+    def __init__(self, meta_train_data, num_context, num_extra_target, lr_params=1e-3, r_dim=50, z_dim=None, h_dim=None, num_iter_fit=10000,
                  task_batch_size=5, normalize_data=True, optimizer='Adam', lr_decay=1.0, random_seed=None):
         """
         Neural Process regression model (https://arxiv.org/abs/1807.01622) that supports meta-learning.
@@ -43,6 +43,11 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
         super().__init__(normalize_data, random_seed)
 
         assert optimizer in ['Adam', 'SGD']
+        
+        if z_dim is None:
+            z_dim = r_dim
+        if h_dim is None:
+            h_dim = r_dim
 
         self.num_context, self.num_extra_target = num_context, num_extra_target
         self.lr_params, self.r_dim, self.z_dim, self.h_dim = lr_params, r_dim, z_dim, h_dim

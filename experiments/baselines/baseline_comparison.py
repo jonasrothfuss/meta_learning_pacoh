@@ -194,7 +194,19 @@ def main(args):
         'lr_inner': [0.02, 0.05, 0.1],
         'layer_sizes': [LAYER_SIZES],
     },
-
+    {
+        'meta_learner': 'neural_process',
+        'dataset': DATASETS,
+        'seed': MODEL_SEEDS,
+        'num_iter_fit': 30000,
+        'task_batch_size': 4,
+        'lr_decay': 0.99,
+        'lr_params': [1e-3, 5e-4, 1e-4],
+        'r_dim': [32, 64],
+        # TODO: make the choice of context and target points depend on the data set
+        'num_context': 5,
+        'num_extra_target': 5,
+    },
     ]
 
     param_configs = _create_configurations(param_configs)
