@@ -184,8 +184,8 @@ class RegressionModelMetaLearned:
         pred_dist = self._vectorize_pred_dist(pred_dist)
 
         alpha = (1-confidence) / 2
-        ucb = pred_dist.icdf(torch.ones(test_x.size) * (1-alpha))
-        lcb = pred_dist.icdf(torch.ones(test_x.size) * alpha)
+        ucb = pred_dist.icdf(torch.ones(test_x.shape) * (1-alpha))  # TODO: .shape or .size?
+        lcb = pred_dist.icdf(torch.ones(test_x.shape) * alpha)
         return ucb, lcb
 
     def _calib_error(self, pred_dist_vectorized, test_t_tensor):
