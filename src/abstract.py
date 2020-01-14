@@ -131,7 +131,7 @@ class RegressionModelMetaLearned:
     def predict(self, context_x, context_y, test_x, **kwargs):
         raise NotImplementedError
 
-    def eval(self, context_x, context_y, test_x, test_y, **kwargs):
+    def eval(self, context_x, context_y, test_x, test_y, flatten_y=True, **kwargs):
         """
         Computes the average test log likelihood, rmse and calibration error n test data
 
@@ -147,19 +147,22 @@ class RegressionModelMetaLearned:
 
         context_x, context_y = _handle_input_dimensionality(context_x, context_y)
         test_x, test_y = _handle_input_dimensionality(test_x, test_y)
-        test_y_tensor = torch.from_numpy(test_y).float().flatten().to(device)
+        if flatten_y:
+            test_y_tensor = torch.from_numpy(test_y).float().flatten().to(device)
+        else:
+            test_y_tensor = torch.from_numpy(test_y).float().to(device)
 
         with torch.no_grad():
             pred_dist = self.predict(context_x, context_y, test_x, return_density=True, **kwargs)
-            avg_log_likelihood = pred_dist.log_prob(test_y_tensor) / test_y_tensor.shape[0]
+            avg_log_likelihood = torch.mean(pred_dist.log_prob(test_y_tensor) / test_y_tensor.shape[0])
             rmse = torch.mean(torch.pow(pred_dist.mean - test_y_tensor, 2)).sqrt()
 
             pred_dist_vect = self._vectorize_pred_dist(pred_dist)
             calibr_error = self._calib_error(pred_dist_vect, test_y_tensor)
-
+            
             return avg_log_likelihood.cpu().item(), rmse.cpu().item(), calibr_error.cpu().item()
 
-    def eval_datasets(self, test_tuples, **kwargs):
+    def eval_datasets(self, test_tuples, flatten_y=True, **kwargs):
         """
         Computes the average test log likelihood, the rmse and the calibration error over multiple test datasets
 
@@ -172,7 +175,7 @@ class RegressionModelMetaLearned:
 
         assert (all([len(valid_tuple) == 4 for valid_tuple in test_tuples]))
 
-        ll_list, rmse_list, calibr_err_list = list(zip(*[self.eval(*test_data_tuple, **kwargs) for test_data_tuple in test_tuples]))
+        ll_list, rmse_list, calibr_err_list = list(zip(*[self.eval(*test_data_tuple, flatten_y=flatten_y, **kwargs) for test_data_tuple in test_tuples]))
 
         return np.mean(ll_list), np.mean(rmse_list), np.mean(calibr_err_list)
 
@@ -181,8 +184,8 @@ class RegressionModelMetaLearned:
         pred_dist = self._vectorize_pred_dist(pred_dist)
 
         alpha = (1-confidence) / 2
-        ucb = pred_dist.icdf(torch.ones(test_x.size) * (1-alpha))
-        lcb = pred_dist.icdf(torch.ones(test_x.size) * alpha)
+        ucb = pred_dist.icdf(torch.ones(test_x.shape) * (1-alpha))  # TODO: .shape or .size?
+        lcb = pred_dist.icdf(torch.ones(test_x.shape) * alpha)
         return ucb, lcb
 
     def _calib_error(self, pred_dist_vectorized, test_t_tensor):
