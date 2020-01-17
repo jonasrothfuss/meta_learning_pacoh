@@ -10,6 +10,7 @@ import math
 from ray import tune
 
 from ray.tune.suggest.hyperopt import HyperOptSearch
+from ray.tune import Analysis
 from hyperopt import hp
 from datetime import datetime
 
@@ -81,50 +82,62 @@ def main(args):
 
         return results_dict
 
-    space = {
-        "weight_prior_std": hp.loguniform("weight_prior_std", math.log(5e-2), math.log(1.0)),
-        "prior_factor": hp.loguniform("prior_factor", math.log(1e-5), math.log(1e-1)),
-        "lr": hp.loguniform("lr", math.log(5e-4), math.log(5e-3)),
-        "lr_decay": hp.loguniform("lr_decay", math.log(0.8), math.log(1.0)),
-        "svi_batch_size": hp.choice("svi_batch_size", [10, 50]),
-        "task_batch_size": hp.choice("task_batch_size", [4, 10]),
-    }
-
-    config = {
-            "num_samples": 240,
-            "config": {
-                "num_iter_fit": 30000,
-                'kernel_nn_layers': [32, 32, 32, 32],
-                'mean_nn_layers': [32, 32, 32, 32],
-                'random_seed': SEED,
-                'mean_module': 'NN',
-                'covar_module': args.covar_module,
-                'normalize_data': True,
-                'cov_type': 'diag'
-            },
-            "stop": {
-                "timesteps_total": 30000
-            },
+    if len(args.load_analysis_from) > 0:
+        assert os.path.isdir(args.load_analysis_from), 'load_analysis_from must be a valid directory'
+        print('Loading existing tune analysis results from %s'%args.load_analysis_from)
+        analysis = Analysis(args.load_analysis_from)
+        exp_name = os.path.basename(args.load_analysis_from)
+    else:
+        space = {
+            "weight_prior_std": hp.loguniform("weight_prior_std", math.log(5e-2), math.log(1.0)),
+            "prior_factor": hp.loguniform("prior_factor", math.log(1e-5), math.log(1e-1)),
+            "lr": hp.loguniform("lr", math.log(5e-4), math.log(5e-3)),
+            "lr_decay": hp.loguniform("lr_decay", math.log(0.8), math.log(1.0)),
+            "svi_batch_size": hp.choice("svi_batch_size", [10, 50]),
+            "task_batch_size": hp.choice("task_batch_size", [4, 10]),
         }
 
+        config = {
+                "num_samples": 240,
+                "config": {
+                    "num_iter_fit": 30000,
+                    'kernel_nn_layers': [32, 32, 32, 32],
+                    'mean_nn_layers': [32, 32, 32, 32],
+                    'random_seed': SEED,
+                    'mean_module': 'NN',
+                    'covar_module': args.covar_module,
+                    'normalize_data': True,
+                    'cov_type': 'diag'
+                },
+                "stop": {
+                    "timesteps_total": 30000
+                },
+            }
 
-    # Run hyper-parameter search
 
-    algo = HyperOptSearch(
-        space,
-        max_concurrent=args.num_cpus,
-        metric="test_ll",
-        mode="max")
+        # Run hyper-parameter search
 
-    exp_name = 'tune_meta_vi_%s_kernel_%s'%(args.covar_module, args.dataset)
+        algo = HyperOptSearch(
+            space,
+            max_concurrent=args.num_cpus,
+            metric="test_ll",
+            mode="max")
 
-    analysis = tune.run(train_reg, name=exp_name, search_alg=algo, verbose=1,
-             local_dir=HPARAM_EXP_DIR, **config)
+        exp_name = 'tune_meta_vi_%s_kernel_%s'%(args.covar_module, args.dataset)
+
+        analysis = tune.run(train_reg, name=exp_name, search_alg=algo, verbose=1,
+                 local_dir=HPARAM_EXP_DIR, **config)
 
     # Select N best configurations re-run train & test with 5 different seeds
 
     from experiments.hyperparam_search.util import select_best_configs
-    best_configs = select_best_configs(analysis, metric='test_ll', mode='max', N=5)
+
+    if args.metric == 'test_ll':
+        best_configs = select_best_configs(analysis, metric='test_ll', mode='max', N=args.n_test_runs)
+    elif args.metric == 'test_rmse':
+        best_configs = select_best_configs(analysis, metric='test_rmse', mode='min', N=args.n_test_runs)
+    else:
+        raise AssertionError('metric must be test_ll or test_rmse')
 
     test_configs = []
     for config in best_configs:
@@ -147,6 +160,10 @@ if __name__ == '__main__':
     parser.add_argument('--covar_module', type=str, default='NN', help='type of kernel function')
     parser.add_argument('--dataset', type=str, default='sin', help='dataset')
     parser.add_argument('--num_cpus', type=int, default=64, help='dataset')
+    parser.add_argument('--load_analysis_from', type=str, default='', help='path to existing tune hparam search results')
+    parser.add_argument('--metric', type=str, default='test_ll', help='test metric to optimize')
+    parser.add_argument('--n_test_runs', type=int, default=5, help='number of test runs')
+
 
     args = parser.parse_args()
 
