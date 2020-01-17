@@ -3,6 +3,7 @@ import os
 import torch
 import gpytorch
 import time
+import math
 import numpy as np
 from torch.distributions.kl import kl_divergence
 from torch.utils.data import DataLoader
@@ -22,7 +23,8 @@ from config import device
 
 class NPRegressionMetaLearned(RegressionModelMetaLearned):
 
-    def __init__(self, meta_train_data, num_context, num_extra_target, lr_params=1e-3, r_dim=50, z_dim=None, h_dim=None, num_iter_fit=10000,
+    def __init__(self, meta_train_data, context_split_ratio=0.5, lr_params=1e-3,
+                 r_dim=50, z_dim=None, h_dim=None, num_iter_fit=10000,
                  task_batch_size=5, normalize_data=True, optimizer='Adam', lr_decay=1.0, random_seed=None):
         """
         Neural Process regression model (https://arxiv.org/abs/1807.01622) that supports meta-learning.
@@ -49,7 +51,7 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
         if h_dim is None:
             h_dim = r_dim
 
-        self.num_context, self.num_extra_target = num_context, num_extra_target
+        self.context_split_ratio = context_split_ratio
         self.lr_params, self.r_dim, self.z_dim, self.h_dim = lr_params, r_dim, z_dim, h_dim
         self.num_iter_fit, self.task_batch_size, self.normalize_data = num_iter_fit, task_batch_size, normalize_data
 
@@ -74,9 +76,6 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
 
         for train_x, train_y in meta_train_data: # TODO: consider parallelizing this loop
             task_dict = {}
-            
-            if len(train_x) < 10:
-                print(len(train_x))
 
             # a) prepare data
             x_tensor, y_tensor = self._prepare_data_per_task(train_x, train_y, flatten_y=False)
@@ -112,16 +111,18 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
 
         for itr in range(1, n_iter + 1):
 
-            loss = 0.0
             self.optimizer.zero_grad()
                 
             batch = self.rds_numpy.choice(self.task_dicts, size=self.task_batch_size)
             batch_x = torch.stack([task["train_x"] for task in batch])
             batch_y = torch.stack([task["train_y"] for task in batch])
-                        
-            x_context, y_context, x_target, y_target = \
-                context_target_split(batch_x, batch_y,
-                                     self.num_context, self.num_extra_target)
+
+            n_samples_per_task = batch_x.shape[1]
+            assert batch_y.shape[1] == n_samples_per_task
+            num_context = math.ceil(self.context_split_ratio * n_samples_per_task)
+            num_extra_target = n_samples_per_task - num_context
+
+            x_context, y_context, x_target, y_target = context_target_split(batch_x, batch_y, num_context, num_extra_target)
             p_y_pred, q_target, q_context = \
                 self.model(x_context, y_context, x_target, y_target)
             loss = self._loss(p_y_pred, y_target, q_target, q_context)
@@ -277,15 +278,13 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
 
 
 if __name__ == "__main__":
-    from experiments.data_sim import GPFunctionsDataset, SinusoidDataset
+    from experiments.data_sim import GPFunctionsDataset, SinusoidDataset, provide_data
 
-    data_sim = SinusoidDataset(random_state=np.random.RandomState(29))
-    meta_train_data = data_sim.generate_meta_train_data(n_tasks=20, n_samples=10)
-    meta_test_data = data_sim.generate_meta_test_data(n_tasks=50, n_samples_context=10, n_samples_test=160)
+    meta_train_data, _, meta_test_data = provide_data('sin_20')
 
-    num_context, num_extra_target = 5,5
+    num_context, num_extra_target = 3, 2
     
-    plot = False
+    plot = True
     from matplotlib import pyplot as plt
 
     if plot:
@@ -298,11 +297,10 @@ if __name__ == "__main__":
 
     torch.set_num_threads(2)
 
-    meta_np = NPRegressionMetaLearned(meta_train_data=meta_train_data,
-                            num_context=num_context, num_extra_target=num_extra_target)
+    meta_np = NPRegressionMetaLearned(meta_train_data=meta_train_data)
     
     itrs = 0
-    meta_np.meta_fit(valid_tuples=meta_test_data, log_period=1000, n_iter=20000)
+    meta_np.meta_fit(valid_tuples=meta_test_data, log_period=1000, n_iter=10000)
     itrs += 20000
     
     test_context_x, test_context_y, test_target_x, test_target_y = meta_test_data[0]
