@@ -1,18 +1,13 @@
 import sys
-import os
 import torch
-import gpytorch
 import time
 import math
 import numpy as np
 from torch.distributions.kl import kl_divergence
-from torch.utils.data import DataLoader
 
 sys.path.append("")
 
 from third_party.neural_processes.utils import context_target_split
-from third_party.neural_processes.training import NeuralProcessTrainer
-from third_party.neural_processes.datasets import SineData
 from third_party.neural_processes.neural_process import NeuralProcess
 
 from src.models import AffineTransformedDistribution
@@ -23,15 +18,14 @@ from config import device
 
 class NPRegressionMetaLearned(RegressionModelMetaLearned):
 
-    def __init__(self, meta_train_data, num_context, num_extra_target, lr_params=1e-3, r_dim=50, z_dim=50, h_dim=50, num_iter_fit=10000,
-                 task_batch_size=5, normalize_data=True, optimizer='Adam', lr_decay=1.0, random_seed=None):
+    def __init__(self, meta_train_data, context_split_ratio=0.5, lr_params=1e-3, r_dim=50, z_dim=50, h_dim=50, num_iter_fit=10000,
+                 weight_decay=1e-2, task_batch_size=5, normalize_data=True, optimizer='Adam', lr_decay=1.0, random_seed=None):
         """
         Neural Process regression model (https://arxiv.org/abs/1807.01622) that supports meta-learning.
 
         Args:
             meta_train_data: list of tuples of ndarrays[(train_x_1, train_t_1), ..., (train_x_n, train_t_n)]
-            num_context: number of context points for all training task or list of numbers for each task
-            num_extra_target: number of target points for all training task or list of numbers for each task
+            context_split_ratio: relative size of the context set w.r.t. to number of samples in each task
             lr_params: (float) learning rate for prior parameters
             r_dim: (float) dimensionality of the context representation
             z_dim: (float) dimensionality of the latent variable
@@ -46,16 +40,10 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
         super().__init__(normalize_data, random_seed)
 
         assert optimizer in ['Adam', 'SGD']
-        assert type(num_context) in [int, list, np.ndarray]
-        assert type(num_extra_target) in [int, list, np.ndarray]
-        if type(num_context) != int:
-            assert len(num_context) == len(meta_train_data)
-        if type(num_extra_target) != int:
-            assert len(num_extra_target) == len(meta_train_data)
 
-        self.num_context, self.num_extra_target = num_context, num_extra_target
         self.lr_params, self.r_dim, self.z_dim, self.h_dim = lr_params, r_dim, z_dim, h_dim
         self.num_iter_fit, self.task_batch_size, self.normalize_data = num_iter_fit, task_batch_size, normalize_data
+        self.context_split_ratio, self.weight_decay = weight_decay, context_split_ratio
 
         # Check that data all has the same size
         self._check_meta_data_shapes(meta_train_data)
@@ -78,17 +66,14 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
 
         for i, (train_x, train_y) in enumerate(meta_train_data): # TODO: consider parallelizing this loop
             task_dict = {}
-            
-            if len(train_x) < 10:
-                print(len(train_x))
 
             # a) prepare data
             x_tensor, y_tensor = self._prepare_data_per_task(train_x, train_y, flatten_y=False)
             task_dict['train_x'], task_dict['train_y'] = x_tensor, y_tensor
-            if type(self.num_context) != int:
-                task_dict['num_context'] = self.num_context[i]
-            if type(self.num_extra_target) != int:
-                task_dict['num_extra_target'] = self.num_extra_target[i]
+
+            n_samples = train_x.shape[0]
+            task_dict['num_context'] = math.ceil(context_split_ratio * n_samples)
+            task_dict['num_extra_target'] = n_samples - task_dict['num_context']
 
             self.task_dicts.append(task_dict)
 
@@ -269,7 +254,7 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
 
     def _setup_optimizer(self, optimizer, lr, lr_decay):
         if optimizer == 'Adam':
-            self.optimizer = torch.optim.AdamW(self.shared_parameters, lr=lr)
+            self.optimizer = torch.optim.AdamW(self.shared_parameters, lr=lr, weight_decay=self.weight_decay)
         elif optimizer == 'SGD':
             self.optimizer = torch.optim.SGD(self.shared_parameters, lr=lr)
         else:
@@ -288,11 +273,11 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
 if __name__ == "__main__":
     from experiments.data_sim import GPFunctionsDataset, SinusoidDataset, provide_data
 
-    meta_train_data, _, meta_test_data = provide_data('sin_20')
+    meta_train_data, _, meta_test_data = provide_data('physionet_0')
 
     num_context, num_extra_target = 3, 2
-    
-    plot = True
+
+    plot = False
     from matplotlib import pyplot as plt
 
     if plot:
@@ -305,12 +290,12 @@ if __name__ == "__main__":
 
     torch.set_num_threads(2)
 
-    meta_np = NPRegressionMetaLearned(meta_train_data=meta_train_data)
-    
+    meta_np = NPRegressionMetaLearned(meta_train_data=meta_train_data, weight_decay=1e-1)
+
     itrs = 0
     meta_np.meta_fit(valid_tuples=meta_test_data, log_period=1000, n_iter=10000)
     itrs += 20000
-    
+
     test_context_x, test_context_y, test_target_x, test_target_y = meta_test_data[0]
     x_plot = np.linspace(-5, 5, num=150)
     x_plot = x_plot[:, np.newaxis]
@@ -324,7 +309,7 @@ if __name__ == "__main__":
     plt.fill_between(x_plot.flatten(), lcb.flatten(), ucb.flatten(), alpha=0.2)
     plt.title('NPR meta mll')
     plt.show()
-    
+
     save = False
     if save:
         plt.savefig("npr_plot.pdf")
