@@ -150,7 +150,7 @@ class RegressionModelMetaLearned:
         if flatten_y:
             test_y_tensor = torch.from_numpy(test_y).float().flatten().to(device)
         else:
-            test_y_tensor = torch.from_numpy(test_y).float().to(device)
+            test_y_tensor = torch.unsqueeze(torch.from_numpy(test_y).float().to(device), dim=0)
 
         with torch.no_grad():
             pred_dist = self.predict(context_x, context_y, test_x, return_density=True, **kwargs)
@@ -244,6 +244,10 @@ class RegressionModelMetaLearned:
 
 def _calib_error(pred_dist_vectorized, test_t_tensor):
     cdf_vals = pred_dist_vectorized.cdf(test_t_tensor)
+    
+    if test_t_tensor.shape[0] == 1:
+        test_t_tensor = test_t_tensor.flatten()
+        cdf_vals = cdf_vals.flatten()
 
     num_points = test_t_tensor.shape[0]
     conf_levels = torch.linspace(0.05, 0.95, 20)
