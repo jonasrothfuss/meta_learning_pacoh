@@ -11,7 +11,7 @@ import numpy as np
 from src.util import get_logger
 from experiments.util import *
 from experiments.data_sim import SinusoidNonstationaryDataset, MNISTRegressionDataset, \
-    PhysionetDataset, GPFunctionsDataset, SinusoidDataset, CauchyDataset
+    PhysionetDataset, GPFunctionsDataset, SinusoidDataset, CauchyDataset, provide_data
 from src.GPR_meta_mll import GPRegressionMetaLearned
 
 import torch
@@ -54,24 +54,27 @@ def main(argv):
 
     logger, exp_dir = setup_exp_doc(FLAGS.exp_name)
 
-    if FLAGS.dataset == 'sin-nonstat':
-        dataset = SinusoidNonstationaryDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
-    elif FLAGS.dataset == 'sin':
-        dataset = SinusoidDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
-    elif FLAGS.dataset == 'cauchy':
-        dataset = CauchyDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
-    elif FLAGS.dataset == 'mnist':
-        dataset = MNISTRegressionDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
-    elif FLAGS.dataset == 'physionet':
-        dataset = PhysionetDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
-    elif FLAGS.dataset == 'gp-funcs':
-        dataset = GPFunctionsDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
+    if FLAGS.dataset == 'swissfel':
+        data_train, _, data_test = provide_data(dataset='swissfel')
     else:
-        raise NotImplementedError('Does not recognize dataset flag')
+        if FLAGS.dataset == 'sin-nonstat':
+            dataset = SinusoidNonstationaryDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
+        elif FLAGS.dataset == 'sin':
+            dataset = SinusoidDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
+        elif FLAGS.dataset == 'cauchy':
+            dataset = CauchyDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
+        elif FLAGS.dataset == 'mnist':
+            dataset = MNISTRegressionDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
+        elif FLAGS.dataset == 'physionet':
+            dataset = PhysionetDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
+        elif FLAGS.dataset == 'gp-funcs':
+            dataset = GPFunctionsDataset(random_state=np.random.RandomState(FLAGS.seed + 1))
+        else:
+            raise NotImplementedError('Does not recognize dataset flag')
 
-    data_train = dataset.generate_meta_train_data(n_tasks=FLAGS.n_train_tasks, n_samples=FLAGS.n_train_samples)
-    data_test = dataset.generate_meta_test_data(n_tasks=FLAGS.n_test_tasks, n_samples_context=FLAGS.n_context_samples,
-                                                n_samples_test=FLAGS.n_test_samples)
+        data_train = dataset.generate_meta_train_data(n_tasks=FLAGS.n_train_tasks, n_samples=FLAGS.n_train_samples)
+        data_test = dataset.generate_meta_test_data(n_tasks=FLAGS.n_test_tasks, n_samples_context=FLAGS.n_context_samples,
+                                                    n_samples_test=FLAGS.n_test_samples)
 
     nn_layers = tuple([FLAGS.layer_size for _ in range(FLAGS.num_layers)])
 

@@ -621,7 +621,7 @@ def provide_data(dataset, seed=28, n_train_tasks=None, n_samples=None):
         n_context_samples = 24
         n_train_samples = 47
 
-        n_train_tasks = 200
+        n_train_tasks = 100
         N_VALID_TASKS = N_TEST_TASKS = 500
 
     elif dataset == 'pendulum':
