@@ -23,14 +23,15 @@ from config import device
 
 class NPRegressionMetaLearned(RegressionModelMetaLearned):
 
-    def __init__(self, meta_train_data, context_split_ratio=0.5, lr_params=1e-3,
-                 r_dim=50, z_dim=None, h_dim=None, num_iter_fit=10000,
+    def __init__(self, meta_train_data, num_context, num_extra_target, lr_params=1e-3, r_dim=50, z_dim=50, h_dim=50, num_iter_fit=10000,
                  task_batch_size=5, normalize_data=True, optimizer='Adam', lr_decay=1.0, random_seed=None):
         """
         Neural Process regression model (https://arxiv.org/abs/1807.01622) that supports meta-learning.
 
         Args:
             meta_train_data: list of tuples of ndarrays[(train_x_1, train_t_1), ..., (train_x_n, train_t_n)]
+            num_context: number of context points for all training task or list of numbers for each task
+            num_extra_target: number of target points for all training task or list of numbers for each task
             lr_params: (float) learning rate for prior parameters
             r_dim: (float) dimensionality of the context representation
             z_dim: (float) dimensionality of the latent variable
@@ -45,13 +46,14 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
         super().__init__(normalize_data, random_seed)
 
         assert optimizer in ['Adam', 'SGD']
-        
-        if z_dim is None:
-            z_dim = r_dim
-        if h_dim is None:
-            h_dim = r_dim
+        assert type(num_context) in [int, list, np.ndarray]
+        assert type(num_extra_target) in [int, list, np.ndarray]
+        if type(num_context) != int:
+            assert len(num_context) == len(meta_train_data)
+        if type(num_extra_target) != int:
+            assert len(num_extra_target) == len(meta_train_data)
 
-        self.context_split_ratio = context_split_ratio
+        self.num_context, self.num_extra_target = num_context, num_extra_target
         self.lr_params, self.r_dim, self.z_dim, self.h_dim = lr_params, r_dim, z_dim, h_dim
         self.num_iter_fit, self.task_batch_size, self.normalize_data = num_iter_fit, task_batch_size, normalize_data
 
@@ -74,12 +76,19 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
         # Setup components that are different across tasks
         self.task_dicts = []
 
-        for train_x, train_y in meta_train_data: # TODO: consider parallelizing this loop
+        for i, (train_x, train_y) in enumerate(meta_train_data): # TODO: consider parallelizing this loop
             task_dict = {}
+            
+            if len(train_x) < 10:
+                print(len(train_x))
 
             # a) prepare data
             x_tensor, y_tensor = self._prepare_data_per_task(train_x, train_y, flatten_y=False)
             task_dict['train_x'], task_dict['train_y'] = x_tensor, y_tensor
+            if type(self.num_context) != int:
+                task_dict['num_context'] = self.num_context[i]
+            if type(self.num_extra_target) != int:
+                task_dict['num_extra_target'] = self.num_extra_target[i]
 
             self.task_dicts.append(task_dict)
 
@@ -111,21 +120,30 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
 
         for itr in range(1, n_iter + 1):
 
+            loss = 0.0
             self.optimizer.zero_grad()
                 
             batch = self.rds_numpy.choice(self.task_dicts, size=self.task_batch_size)
-            batch_x = torch.stack([task["train_x"] for task in batch])
-            batch_y = torch.stack([task["train_y"] for task in batch])
+            for task in batch:
+                batch_x = torch.unsqueeze(task["train_x"], dim=0)
+                batch_y = torch.unsqueeze(task["train_y"], dim=0)
 
-            n_samples_per_task = batch_x.shape[1]
-            assert batch_y.shape[1] == n_samples_per_task
-            num_context = math.ceil(self.context_split_ratio * n_samples_per_task)
-            num_extra_target = n_samples_per_task - num_context
-
-            x_context, y_context, x_target, y_target = context_target_split(batch_x, batch_y, num_context, num_extra_target)
-            p_y_pred, q_target, q_context = \
-                self.model(x_context, y_context, x_target, y_target)
-            loss = self._loss(p_y_pred, y_target, q_target, q_context)
+                if "num_context" in task:
+                    num_context = task["num_context"]
+                else:
+                    num_context = self.num_context
+                    
+                if "num_extra_target" in task:
+                    num_extra_target = task["num_extra_target"]
+                else:
+                    num_extra_target = self.num_extra_target
+        
+                x_context, y_context, x_target, y_target = \
+                    context_target_split(batch_x, batch_y,
+                                         num_context, num_extra_target)
+                p_y_pred, q_target, q_context = \
+                    self.model(x_context, y_context, x_target, y_target)
+                loss += self._loss(p_y_pred, y_target, q_target, q_context)
 
             loss.backward()
             self.optimizer.step()
@@ -140,7 +158,7 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
                 cum_loss = 0.0
                 t = time.time()
 
-                message = 'Iter %d/%d - Loss: %.6f - Time %.2f sec' % (itr, n_iter, avg_loss.item(), duration)
+                message = 'Iter %d/%d - Loss: %.6f - Time %.2f sec' % (itr, self.num_iter_fit, avg_loss.item(), duration)
 
                 # if validation data is provided  -> compute the valid log-likelihood
                 if valid_tuples is not None:
@@ -265,16 +283,6 @@ class NPRegressionMetaLearned(RegressionModelMetaLearned):
             
     def _vectorize_pred_dist(self, pred_dist):
         return torch.distributions.Normal(pred_dist.mean, pred_dist.stddev)
-    
-    
-#     def confidence_intervals(self, context_x, context_y, test_x, confidence=0.9, **kwargs):
-#         pred_dist = self.predict(context_x, context_y, test_x, return_density=True, **kwargs)
-#         pred_dist = self._vectorize_pred_dist(pred_dist)
-        
-#         alpha = (1-confidence) / 2
-#         ucb = pred_dist.icdf(torch.ones(test_x.shape) * (1-alpha))
-#         lcb = pred_dist.icdf(torch.ones(test_x.shape) * alpha)
-#         return ucb, lcb
 
 
 if __name__ == "__main__":
