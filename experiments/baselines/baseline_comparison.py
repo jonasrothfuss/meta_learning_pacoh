@@ -10,7 +10,7 @@ from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
-EXP_DIR = os.path.join(DATA_DIR, 'priors_comparison')
+EXP_DIR = os.path.join(DATA_DIR, 'baseline_comparison')
 if not os.path.isdir(EXP_DIR): os.makedirs(EXP_DIR)
 
 # Configuration w.r.t. data
@@ -103,7 +103,12 @@ def fit_eval_meta_algo(param_dict):
         # 2) Fit model
         model = meta_learner_cls(data_train, **param_dict, random_seed=seed)
         model.meta_fit(data_test, log_period=5000)
-        eval_result = model.eval_datasets(data_test)
+
+        # 3) evaluate model
+        if meta_learner == 'neural_process':
+            eval_result = model.eval_datasets(data_test, flatten_y=False)
+        else:
+            eval_result = model.eval_datasets(data_test)
 
         if meta_learner == 'maml':
             rmse = eval_result
@@ -111,7 +116,6 @@ def fit_eval_meta_algo(param_dict):
         else:
             ll, rmse, calib_err = eval_result
             results_dict.update(ll=ll, rmse=rmse, calib_err=calib_err)
-
 
     except Exception as e:
         print(e)
@@ -200,12 +204,10 @@ def main(args):
         'seed': MODEL_SEEDS,
         'num_iter_fit': 30000,
         'task_batch_size': 4,
-        'lr_decay': 0.99,
-        'lr_params': [1e-3, 5e-4, 1e-4],
+        'lr_decay': 0.97,
+        'lr_params': 1e-3,
         'r_dim': [32, 64],
-        # TODO: make the choice of context and target points depend on the data set
-        'num_context': 5,
-        'num_extra_target': 5,
+        'weight_decay': [1e-2, 1e-1, 2e-1, 4e-1, 8e-1]
     },
     ]
 
