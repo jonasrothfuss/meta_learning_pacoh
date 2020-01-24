@@ -14,7 +14,7 @@ import experiments.hyperparam_search.meta_vi_hyperparam as meta_vi_hparam
 CLUSTER = True
 DRY = False
 
-NUM_CPUS = 64
+NUM_CPUS = 20
 
 command_list = []
 
@@ -35,7 +35,8 @@ if CLUSTER:
     for python_cmd in command_list:
         bsub_cmd = 'bsub' \
                    ' -W 23:00'\
-                   ' -R "rusage[mem=4048]"' \
+                   ' -R "rusage[mem=4500]"' \
+                   ' -R "rusage[ngpus_excl_p=1]"' \
                    ' -n %i '% (NUM_CPUS)
         cluster_cmds.append(bsub_cmd + ' ' + python_cmd)
 
