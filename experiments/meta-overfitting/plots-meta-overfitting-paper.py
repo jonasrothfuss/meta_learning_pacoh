@@ -9,7 +9,7 @@ from experiments.util import collect_exp_results
 DIR = os.path.dirname(os.path.abspath(__file__))
 
 lines = []
-fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+fig, axes = plt.subplots(1, 3, figsize=(12, 3))
 
 """ ------- sinusoid ------- """
 results_df = collect_exp_results('meta-overfitting-sin')
@@ -35,7 +35,7 @@ for n_train_tasks in n_train_tasks_list:
 
     lines.append(axes[0].plot(y_mean, label=str(n_train_tasks))[0])
     axes[0].fill_between(x, y_mean - y_std, y_mean + y_std, alpha=0.2)
-    axes[0].set_title('Sinusoids')
+    axes[0].set_title('Sinusoid')
     axes[0].set_ylabel('test RMSE')
     axes[0].set_xscale('log')
     axes[0].set_xlabel('weight decay')
@@ -67,7 +67,7 @@ for n_train_tasks in n_train_tasks_list:
 
     axes[1].plot(y_mean, label=str(n_train_tasks))
     axes[1].fill_between(x, y_mean - y_std, y_mean + y_std, alpha=0.2)
-    axes[1].set_title('Mixtures of Cauchy')
+    axes[1].set_title('Cauchy')
     axes[1].set_ylabel('test RMSE')
     axes[1].set_xscale('log')
     axes[1].set_xlabel('weight decay')
