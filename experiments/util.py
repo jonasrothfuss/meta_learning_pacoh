@@ -9,7 +9,7 @@ import itertools
 import multiprocessing
 import pandas as pd
 from absl import flags
-from src.util import get_logger
+from meta_learn.util import get_logger
 
 
 DEFAULT_FLAGS = ['logtostderr', 'alsologtostderr', 'v', 'verbosity',

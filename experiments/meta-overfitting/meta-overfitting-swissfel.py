@@ -8,7 +8,8 @@ sys.path.append(BASE_DIR)
 from experiments.util import AsyncExecutor, generate_launch_commands
 import experiments.meta_GPR_mll_base_exp
 import numpy as np
-cluster = True
+
+cluster = False
 
 N_THREADS = 1
 
@@ -43,5 +44,5 @@ if cluster :
             os.system(cmd)
 else:
     exec_fn = lambda cmd: os.system(cmd)
-    executor = AsyncExecutor(n_jobs=10)
+    executor = AsyncExecutor(n_jobs=-1)
     executor.run(exec_fn, command_list)

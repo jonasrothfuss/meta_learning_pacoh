@@ -1,22 +1,22 @@
 import torch
 import gpytorch
 import time
-
 import numpy as np
 
-from src.models import AffineTransformedDistribution, EqualWeightedMixtureDist
-from src.random_gp import RandomGPMeta
-from src.util import _handle_input_dimensionality, DummyLRScheduler
-from src.svgd import SVGD, RBF_Kernel, IMQSteinKernel
-from src.abstract import RegressionModelMetaLearned
+from torch.distributions.multivariate_normal import MultivariateNormal
+
+from meta_learn.models import AffineTransformedDistribution, EqualWeightedMixtureDist
+from meta_learn.random_gp import RandomGPMeta, RandomGPPosterior
+from meta_learn.util import _handle_input_dimensionality, DummyLRScheduler
+from meta_learn.abstract import RegressionModelMetaLearned
 from config import device
 
-class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
+class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
 
     def __init__(self, meta_train_data, num_iter_fit=10000, feature_dim=1,
                  prior_factor=0.01, weight_prior_std=0.5, bias_prior_std=3.0,
                  covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
-                 optimizer='Adam', lr=1e-3, lr_decay=1.0, kernel='RBF', bandwidth=None, num_particles=10,
+                 optimizer='Adam', lr=1e-3, lr_decay=1.0, svi_batch_size=10, cov_type='diag',
                  task_batch_size=-1, normalize_data=True, random_seed=None):
         """
         Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
@@ -50,7 +50,7 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
 
         self.num_iter_fit, self.prior_factor, self.feature_dim = num_iter_fit, prior_factor, feature_dim
         self.weight_prior_std, self.bias_prior_std = weight_prior_std, bias_prior_std
-        self.num_particles = num_particles
+        self.svi_batch_size = svi_batch_size
         if task_batch_size < 1:
             self.task_batch_size = len(meta_train_data)
         else:
@@ -62,7 +62,9 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
 
         """ --- Setup model & inference --- """
         self._setup_model_inference(mean_module, covar_module, mean_nn_layers, kernel_nn_layers,
-                                    kernel, bandwidth, optimizer, lr, lr_decay)
+                                    cov_type)
+
+        self._setup_optimizer(optimizer, lr, lr_decay)
 
         # Setup components that are different across tasks
         self.task_dicts = []
@@ -81,7 +83,7 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
     def meta_fit(self, valid_tuples=None, verbose=True, log_period=500, n_iter=None):
 
         """
-        fits the hyper-posterior particles with SVGD
+        fits the variational hyper-posterior by minimizing the negative ELBO
 
         Args:
             valid_tuples: list of valid tuples, i.e. [(test_context_x_1, test_context_t_1, test_x_1, test_t_1), ...]
@@ -100,7 +102,10 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
         for itr in range(1, n_iter + 1):
 
             task_dict_batch = self.rds_numpy.choice(self.task_dicts, size=self.task_batch_size)
-            self.svgd_step(task_dict_batch)
+            self.optimizer.zero_grad()
+            loss = self.get_neg_elbo(task_dict_batch)
+            loss.backward()
+            self.optimizer.step()
             self.lr_scheduler.step()
 
             # print training stats stats
@@ -108,7 +113,7 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
                 duration = time.time() - t
                 t = time.time()
 
-                message = 'Iter %d/%d - Time %.2f sec' % (itr, self.num_iter_fit, duration)
+                message = 'Iter %d/%d - Loss: %.6f - Time %.2f sec' % (itr, self.num_iter_fit, loss.item(), duration)
 
                 # if validation data is provided  -> compute the valid log-likelihood
                 if valid_tuples is not None:
@@ -119,8 +124,9 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
                     self.logger.info(message)
 
         self.fitted = True
+        return loss.item()
 
-    def predict(self, context_x, context_y, test_x, return_density=False):
+    def predict(self, context_x, context_y, test_x, n_posterior_samples=100, mode='Bayes', return_density=False):
         """
         computes the predictive distribution of the targets p(t|test_x, test_context_x, context_y)
 
@@ -128,11 +134,14 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
             context_x: (ndarray) context input data for which to compute the posterior
             context_y: (ndarray) context targets for which to compute the posterior
             test_x: (ndarray) query input data of shape (n_samples, ndim_x)
+                        n_posterior_samples: (int) number of samples from posterior to average over
+            mode: (std) either of ['Bayes' , 'MAP']
             return_density: (bool) whether to return result as mean and std ndarray or as MultivariateNormal pytorch object
 
         Returns:
             (pred_mean, pred_std) predicted mean and standard deviation corresponding to p(t|test_x, test_context_x, context_y)
         """
+        assert mode in ['bayes', 'Bayes', 'MAP', 'map']
 
         context_x, context_y = _handle_input_dimensionality(context_x, context_y)
         test_x = _handle_input_dimensionality(test_x)
@@ -145,11 +154,17 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
         test_x = torch.from_numpy(test_x).float().to(device)
 
         with torch.no_grad():
-            pred_dist = self.get_pred_dist(context_x, context_y, test_x)
-            pred_dist = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
-                                                      normalization_std=self.y_std)
-            pred_dist = EqualWeightedMixtureDist(pred_dist, batched=True)
 
+            if mode == 'Bayes' or mode == 'bayes':
+                pred_dist = self.get_pred_dist(context_x, context_y, test_x, n_post_samples=n_posterior_samples)
+                pred_dist = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
+                                                      normalization_std=self.y_std)
+
+                pred_dist = EqualWeightedMixtureDist(pred_dist, batched=True)
+            else:
+                pred_dist = self.get_pred_dist_map(context_x, context_y, test_x)
+                pred_dist = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
+                                                      normalization_std=self.y_std)
             if return_density:
                 return pred_dist
             else:
@@ -157,8 +172,22 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
                 pred_std = pred_dist.stddev.cpu().numpy()
                 return pred_mean, pred_std
 
-    def _setup_model_inference(self, mean_module_str, covar_module_str, mean_nn_layers, kernel_nn_layers,
-                               kernel, bandwidth, optimizer, lr, lr_decay):
+    def state_dict(self):
+        state_dict = {
+            'optimizer': self.optimizer.state_dict(),
+            'model': self.task_dicts[0]['model'].state_dict()
+        }
+        for task_dict in self.task_dicts:
+            for key, tensor in task_dict['model'].state_dict().items():
+                assert torch.all(state_dict['model'][key] == tensor).item()
+        return state_dict
+
+    def load_state_dict(self, state_dict):
+        for task_dict in self.task_dicts:
+            task_dict['model'].load_state_dict(state_dict['model'])
+        self.optimizer.load_state_dict(state_dict['optimizer'])
+
+    def _setup_model_inference(self, mean_module_str, covar_module_str, mean_nn_layers, kernel_nn_layers, cov_type):
         assert mean_module_str in ['NN', 'constant']
         assert covar_module_str in ['NN', 'SE']
 
@@ -168,58 +197,68 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
                                   covar_module_str=covar_module_str, mean_module_str=mean_module_str,
                                   mean_nn_layers=mean_nn_layers, kernel_nn_layers=kernel_nn_layers)
 
-        """ Setup SVGD inference"""
+        param_shapes_dict = self.random_gp.parameter_shapes()
 
-        if kernel == 'RBF':
-            kernel = RBF_Kernel(bandwidth=bandwidth)
-        elif kernel == 'IMQ':
-            kernel = IMQSteinKernel(bandwidth=bandwidth)
-        else:
-            raise NotImplemented
+        """ variational posterior """
+        self.posterior = RandomGPPosterior(param_shapes_dict, cov_type=cov_type)
 
-        # sample initial particle locations from prior
-        self.particles = self.random_gp.sample_params_from_prior(shape=(self.num_particles,))
-
-        self._setup_optimizer(optimizer, lr, lr_decay)
-
-        self.svgd = SVGD(self.random_gp, kernel, optimizer=self.optimizer)
-
-        """ define svgd step """
-
-        def svgd_step(tasks_dicts):
-            # tile data to svi_batch_shape
+        def _tile_data_tuples(tasks_dicts, tile_size):
             train_data_tuples_tiled = []
             for task_dict in tasks_dicts:
                 x_data, y_data = task_dict['train_x'], task_dict['train_y']
-                x_data = x_data.view(torch.Size((1,)) + x_data.shape).repeat(self.num_particles, 1, 1)
-                y_data = y_data.view(torch.Size((1,)) + y_data.shape).repeat(self.num_particles, 1)
+                x_data = x_data.view(torch.Size((1,)) + x_data.shape).repeat(tile_size, 1, 1)
+                y_data = y_data.view(torch.Size((1,)) + y_data.shape).repeat(tile_size, 1)
                 train_data_tuples_tiled.append((x_data, y_data))
+            return train_data_tuples_tiled
 
-            self.svgd.step(self.particles, train_data_tuples_tiled)
+        """ define negative ELBO """
+        def get_neg_elbo(tasks_dicts):
+            # tile data to svi_batch_shape
+            data_tuples_tiled = _tile_data_tuples(tasks_dicts, self.svi_batch_size)
+
+            param_sample = self.posterior.rsample(sample_shape=(self.svi_batch_size,))
+            elbo = self.random_gp.log_prob(param_sample, data_tuples_tiled) - self.prior_factor * self.posterior.log_prob(param_sample)
+
+            assert elbo.ndim == 1 and elbo.shape[0] == self.svi_batch_size
+            return - torch.mean(elbo)
+
+        self.get_neg_elbo = get_neg_elbo
 
         """ define predictive dist """
-
-        def get_pred_dist(x_context, y_context, x_valid):
+        def get_pred_dist(x_context, y_context, x_valid, n_post_samples=100):
             with torch.no_grad():
-                x_context = x_context.view(torch.Size((1,)) + x_context.shape).repeat(self.num_particles, 1, 1)
-                y_context = y_context.view(torch.Size((1,)) + y_context.shape).repeat(self.num_particles, 1)
-                x_valid = x_valid.view(torch.Size((1,)) + x_valid.shape).repeat(self.num_particles, 1, 1)
+                x_context = x_context.view(torch.Size((1,)) + x_context.shape).repeat(n_post_samples, 1, 1)
+                y_context = y_context.view(torch.Size((1,)) + y_context.shape).repeat(n_post_samples, 1)
+                x_valid = x_valid.view(torch.Size((1,)) + x_valid.shape).repeat(n_post_samples, 1, 1)
 
-                gp_fn = self.random_gp.get_forward_fn(self.particles)
+                param_sample = self.posterior.sample(sample_shape=(n_post_samples,))
+                gp_fn = self.random_gp.get_forward_fn(param_sample)
                 gp, likelihood = gp_fn(x_context, y_context, train=False)
                 pred_dist = likelihood(gp(x_valid))
             return pred_dist
 
-        self.svgd_step = svgd_step
+        def get_pred_dist_map(x_context, y_context, x_valid):
+            with torch.no_grad():
+                x_context = x_context.view(torch.Size((1,)) + x_context.shape).repeat(1, 1, 1)
+                y_context = y_context.view(torch.Size((1,)) + y_context.shape).repeat(1, 1)
+                x_valid = x_valid.view(torch.Size((1,)) + x_valid.shape).repeat(1, 1, 1)
+                param = self.posterior.mode
+                param = param.view(torch.Size((1,)) + param.shape).repeat(1, 1)
+
+                gp_fn = self.random_gp.get_forward_fn(param)
+                gp, likelihood = gp_fn(x_context, y_context, train=False)
+                pred_dist = likelihood(gp(x_valid))
+            return MultivariateNormal(pred_dist.loc, pred_dist.covariance_matrix[0])
+
+
         self.get_pred_dist = get_pred_dist
+        self.get_pred_dist_map = get_pred_dist_map
 
     def _setup_optimizer(self, optimizer, lr, lr_decay):
-        assert hasattr(self, 'particles'), "SVGD must be initialized before setting up optimizer"
-
         if optimizer == 'Adam':
-            self.optimizer = torch.optim.Adam([self.particles], lr=lr)
+            self.optimizer = torch.optim.Adam(self.posterior.parameters(), lr=lr)
         elif optimizer == 'SGD':
-            self.optimizer = torch.optim.SGD([self.particles], lr=lr)
+            self.optimizer = torch.optim.SGD(self.posterior.parameters(), lr=lr)
         else:
             raise NotImplementedError('Optimizer must be Adam or SGD')
 
@@ -233,17 +272,17 @@ class GPRegressionMetaLearnedSVGD(RegressionModelMetaLearned):
         normal_batched = torch.distributions.Normal(multiv_normal_batched.mean, multiv_normal_batched.stddev)
         return EqualWeightedMixtureDist(normal_batched, batched=True, num_dists=multiv_normal_batched.batch_shape[0])
 
+
 if __name__ == "__main__":
     """ 1) Generate some training data from GP prior """
     from experiments.data_sim import GPFunctionsDataset
 
     data_sim = GPFunctionsDataset(random_state=np.random.RandomState(26))
 
-    # meta_train_data = data_sim.generate_meta_train_data(n_tasks=5, n_samples=40)
-    meta_test_data = data_sim.generate_meta_test_data(n_tasks=5, n_samples_context=40, n_samples_test=160)
-    meta_train_data = [(context_x, context_y) for context_x, context_y, _, _ in meta_test_data]
+    meta_train_data = data_sim.generate_meta_train_data(n_tasks=10, n_samples=40)
+    meta_test_data = data_sim.generate_meta_test_data(n_tasks=10, n_samples_context=40, n_samples_test=160)
 
-    NN_LAYERS = (16, 16)
+    NN_LAYERS = (32, 32)
 
     plot = False
     from matplotlib import pyplot as plt
@@ -254,15 +293,21 @@ if __name__ == "__main__":
         plt.title('sample from the GP prior')
         plt.show()
 
-    for prior_factor in [1e-3]:
-        gp_model = GPRegressionMetaLearnedSVGD(meta_train_data, num_iter_fit=2000, prior_factor=prior_factor, num_particles=10,
-                                             covar_module='SE', mean_module='NN', mean_nn_layers=NN_LAYERS, kernel_nn_layers=NN_LAYERS,
-                                             bandwidth=0.5, task_batch_size=2)
+    """ 2) Classical mean learning based on mll """
+
+    print('\n ---- GPR VI meta-learning ---- ')
+
+    torch.set_num_threads(2)
+
+    for prior_factor in [1e-3 / 40.]:
+        gp_model = GPRegressionMetaLearnedVI(meta_train_data, num_iter_fit=2000, prior_factor=prior_factor, svi_batch_size=10, task_batch_size=2,
+                                             covar_module='SE', mean_module='NN', mean_nn_layers=NN_LAYERS, kernel_nn_layers=NN_LAYERS, cov_type='diag')
+
 
         for i in range(10):
             itrs = 0
-            gp_model.meta_fit(valid_tuples=meta_test_data, log_period=500, n_iter=1000)
-            itrs += 10
+            gp_model.meta_fit(valid_tuples=meta_test_data, log_period=500, n_iter=2000)
+            itrs += 2000
 
             x_test = np.linspace(-5, 5, num=150)
             x_context, t_context, _, _ = meta_test_data[0]
@@ -272,5 +317,5 @@ if __name__ == "__main__":
             plt.scatter(x_context, t_context)
             plt.plot(x_test, pred_mean)
             plt.fill_between(x_test, lcb, ucb, alpha=0.2)
-            plt.title('GPR meta SVGD (prior-factor =  %.4f) itrs = %i'%(prior_factor, itrs))
+            plt.title('GPR meta VI (prior-factor =  %.4f) itrs = %i' % (prior_factor, itrs))
             plt.show()

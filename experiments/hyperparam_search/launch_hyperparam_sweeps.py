@@ -11,7 +11,7 @@ import experiments.hyperparam_search.meta_mll_hyperparm as meta_mll_hparam
 import experiments.hyperparam_search.meta_svgd_hyperparam as meta_svgd_hparam
 import experiments.hyperparam_search.meta_vi_hyperparam as meta_vi_hparam
 
-CLUSTER = True
+CLUSTER = False
 DRY = False
 
 NUM_CPUS = 20
@@ -21,8 +21,8 @@ command_list = []
 for hparam_search_module in [meta_mll_hparam, meta_svgd_hparam, meta_vi_hparam]:
 
     exp_config = {
-        'dataset': ['cauchy_10', 'sin_10', 'cauchy_20', 'sin_20', 'physionet_0', 'physionet_1', 'physionet_2', 'swissfel'],
-        'covar_module': ['SE', 'NN'],
+        'dataset': ['cauchy_20', 'sin_20', 'physionet_0', 'physionet_2', 'swissfel'],
+        'covar_module': ['NN'],
         'num_cpus': [NUM_CPUS]
     }
     command_list += generate_launch_commands(hparam_search_module, exp_config, check_flags=False)

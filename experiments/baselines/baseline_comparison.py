@@ -14,7 +14,7 @@ EXP_DIR = os.path.join(DATA_DIR, 'baseline_comparison')
 if not os.path.isdir(EXP_DIR): os.makedirs(EXP_DIR)
 
 # Configuration w.r.t. data
-DATASETS = ['cauchy_10', 'sin_10', 'cauchy_20', 'sin_20', 'physionet_0', 'physionet_1', 'physionet_2', 'swissfel']
+DATASETS = ['cauchy_20', 'sin_20', 'physionet_0', 'physionet_2', 'swissfel']
 
 
 DATA_SEED = 28
@@ -46,7 +46,7 @@ def fit_eval_GPR_mll(param_dict):
 
     @ray.remote
     def fit_eval(x_context, y_context, x_test, y_test, params):
-        from src.GPR_mll import GPRegressionLearned
+        from meta_learn.GPR_mll import GPRegressionLearned
         torch.set_num_threads(1)
         model = GPRegressionLearned(x_context, y_context, **params, random_seed=seed)
         model.fit(verbose=False)
@@ -66,11 +66,11 @@ def fit_eval_GPR_mll(param_dict):
 def fit_eval_meta_algo(param_dict):
     sys.path.append(BASE_DIR)
 
-    from src.GPR_meta_svgd import GPRegressionMetaLearnedSVGD
-    from src.GPR_meta_vi import GPRegressionMetaLearnedVI
-    from src.GPR_meta_mll import GPRegressionMetaLearned
-    from src.NPR_meta import NPRegressionMetaLearned
-    from src.MAML import MAMLRegression
+    from meta_learn.GPR_meta_svgd import GPRegressionMetaLearnedSVGD
+    from meta_learn.GPR_meta_vi import GPRegressionMetaLearnedVI
+    from meta_learn.GPR_meta_mll import GPRegressionMetaLearned
+    from meta_learn.NPR_meta import NPRegressionMetaLearned
+    from meta_learn.MAML import MAMLRegression
 
     torch.set_num_threads(1)
 

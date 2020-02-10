@@ -4,9 +4,9 @@ import time
 
 import numpy as np
 
-from src.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
-from src.util import _handle_input_dimensionality, DummyLRScheduler
-from src.abstract import RegressionModelMetaLearned
+from meta_learn.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
+from meta_learn.util import _handle_input_dimensionality, DummyLRScheduler
+from meta_learn.abstract import RegressionModelMetaLearned
 from config import device
 
 class GPRegressionMetaLearned(RegressionModelMetaLearned):

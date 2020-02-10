@@ -38,7 +38,7 @@ def main(args):
         data_train, data_valid, _ = provide_data(dataset=args.dataset)
 
         # 2) setup model
-        from src.GPR_meta_vi import GPRegressionMetaLearnedVI
+        from meta_learn.GPR_meta_vi import GPRegressionMetaLearnedVI
         torch.set_num_threads(N_THREADS_PER_RUN)
 
         model = GPRegressionMetaLearnedVI(data_train, **config)
@@ -66,7 +66,7 @@ def main(args):
             data_train, _, data_test = provide_data(dataset=args.dataset, seed=SEED)
 
             # 2) Fit model
-            from src.GPR_meta_vi import GPRegressionMetaLearnedVI
+            from meta_learn.GPR_meta_vi import GPRegressionMetaLearnedVI
             torch.set_num_threads(N_THREADS_PER_RUN)
             model = GPRegressionMetaLearnedVI(data_train, **config)
             model.meta_fit(data_test, log_period=5000)

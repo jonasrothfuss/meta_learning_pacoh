@@ -9,11 +9,11 @@ sys.path.append(BASE_DIR)
 from absl import flags
 from absl import app
 import numpy as np
-from src.util import get_logger
+from meta_learn.util import get_logger
 from experiments.util import *
 from experiments.data_sim import SinusoidNonstationaryDataset, MNISTRegressionDataset, PhysionetDataset, \
     GPFunctionsDataset, SinusoidDataset, CauchyDataset
-from src.GPR_meta_svgd import GPRegressionMetaLearnedSVGD
+from meta_learn.GPR_meta_svgd import GPRegressionMetaLearnedSVGD
 
 import torch
 

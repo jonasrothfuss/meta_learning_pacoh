@@ -11,7 +11,7 @@ setuptools.setup(
     description="Meta-Learning Gausssian Proccess Priors",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    package_dir={'meta-gp': 'src'},
+    package_dir={'meta-gp': 'meta_learn'},
     packages=setuptools.find_packages(),
     install_requires=[
         'numpy',

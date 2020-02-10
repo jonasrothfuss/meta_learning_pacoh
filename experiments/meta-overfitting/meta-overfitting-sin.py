@@ -9,7 +9,7 @@ from experiments.util import AsyncExecutor, generate_launch_commands
 import experiments.meta_GPR_mll_base_exp
 import numpy as np
 
-cluster = True
+cluster = False
 
 N_THREADS = 2
 

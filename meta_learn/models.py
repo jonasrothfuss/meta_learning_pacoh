@@ -3,7 +3,7 @@ import gpytorch
 import math
 from collections import OrderedDict
 from config import device
-from src.util import find_root_by_bounding
+from meta_learn.util import find_root_by_bounding
 
 """ ----------------------------------------------------"""
 """ ------------ Probability Distributions ------------ """

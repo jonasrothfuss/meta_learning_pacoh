@@ -1,8 +1,8 @@
 import unittest
 import numpy as np
 
-from src.GPR_mll import GPRegressionLearned
-from src.GPR_meta_mll import GPRegressionMetaLearned
+from meta_learn.GPR_mll import GPRegressionLearned
+from meta_learn.GPR_meta_mll import GPRegressionMetaLearned
 from gpytorch.kernels import CosineKernel
 import torch
 

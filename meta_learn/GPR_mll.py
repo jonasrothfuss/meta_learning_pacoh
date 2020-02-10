@@ -3,9 +3,9 @@ import time
 import torch
 import numpy as np
 
-from src.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
-from src.abstract import RegressionModel
-from src.util import _handle_input_dimensionality
+from meta_learn.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
+from meta_learn.abstract import RegressionModel
+from meta_learn.util import _handle_input_dimensionality
 from config import device
 
 

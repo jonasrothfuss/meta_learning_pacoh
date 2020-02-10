@@ -1,6 +1,6 @@
 import unittest
-from src.models import NeuralNetworkVectorized, NeuralNetwork, LinearVectorized, CatDist, EqualWeightedMixtureDist
-from src.util import find_root_by_bounding
+from meta_learn.models import NeuralNetworkVectorized, NeuralNetwork, LinearVectorized, CatDist, EqualWeightedMixtureDist
+from meta_learn.util import find_root_by_bounding
 import torch
 import pyro
 import numpy as np

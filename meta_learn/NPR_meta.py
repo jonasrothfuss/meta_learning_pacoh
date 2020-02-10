@@ -10,9 +10,9 @@ sys.path.append("")
 from third_party.neural_processes.utils import context_target_split
 from third_party.neural_processes.neural_process import NeuralProcess
 
-from src.models import AffineTransformedDistribution
-from src.util import _handle_input_dimensionality, DummyLRScheduler
-from src.abstract import RegressionModelMetaLearned
+from meta_learn.models import AffineTransformedDistribution
+from meta_learn.util import _handle_input_dimensionality, DummyLRScheduler
+from meta_learn.abstract import RegressionModelMetaLearned
 from config import device
 
 

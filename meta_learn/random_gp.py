@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from pyro.distributions import Normal, LogNormal, Independent
 from collections import OrderedDict
 
-from src.models import LearnedGPRegressionModel, ConstantMeanLight, SEKernelLight, GaussianLikelihoodLight, \
+from meta_learn.models import LearnedGPRegressionModel, ConstantMeanLight, SEKernelLight, GaussianLikelihoodLight, \
     VectorizedModel, CatDist, NeuralNetworkVectorized
 from config import device
 

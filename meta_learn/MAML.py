@@ -4,9 +4,9 @@ import math
 import torch
 import numpy as np
 
-from src.models import NeuralNetwork
-from src.abstract import RegressionModelMetaLearned
-from src.util import DummyLRScheduler, _handle_input_dimensionality
+from meta_learn.models import NeuralNetwork
+from meta_learn.abstract import RegressionModelMetaLearned
+from meta_learn.util import DummyLRScheduler, _handle_input_dimensionality
 
 from config import device
 

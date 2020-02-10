@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from src.util import get_logger, _handle_input_dimensionality
+from meta_learn.util import get_logger, _handle_input_dimensionality
 from config import device
 
 
