@@ -15,15 +15,14 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
                  num_iter_fit=10000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
                  task_batch_size=5, normalize_data=True, optimizer='Adam', lr_decay=1.0, random_seed=None):
         """
-        Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
-        neural network mean and covariance functions
+        Meta-Learning GP priors (i.e. mean and kernel function) via PACOH-MAP
 
         Args:
             meta_train_data: list of tuples of ndarrays[(train_x_1, train_t_1), ..., (train_x_n, train_t_n)]
             learning_mode: (str) specifying which of the GP prior parameters to optimize. Either one of
                     ['learned_mean', 'learned_kernel', 'both', 'vanilla']
-            lr: (float) learning rate for prior parameters
-            weight_decay: (float) weight decay penalty
+            lr_params: (float) learning rate for GP prior parameters
+            weight_decay: (float) weight decay multiplier for meta-level regularization
             feature_dim: (int) output dimensionality of NN feature map for kernel function
             num_iter_fit: (int) number of gradient steps for fitting the parameters
             covar_module: (gpytorch.mean.Kernel) optional kernel module, default: RBF kernel
@@ -31,9 +30,9 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
             mean_nn_layers: (tuple) hidden layer sizes of mean NN
             kernel_nn_layers: (tuple) hidden layer sizes of kernel NN
             learning_rate: (float) learning rate for AdamW optimizer
-            task_batch_size: (int) batch size for meta training, i.e. number of tasks for computing grads
+            task_batch_size: (int) batch size for meta training, i.e. number of tasks for computing gradients
             optimizer: (str) type of optimizer to use - must be either 'Adam' or 'SGD'
-            lr_scheduler: (str) whether to use a lr scheduler
+            lr_decay: (str) multiplicative learning rate decay applied every 1000 iterations
             random_seed: (int) seed for pytorch
         """
         super().__init__(normalize_data, random_seed)
@@ -59,7 +58,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
         # Setup components that are different across tasks
         self.task_dicts = []
 
-        for train_x, train_y in meta_train_data: # TODO: consider parallelizing this loop
+        for train_x, train_y in meta_train_data:
             task_dict = {}
 
             # a) prepare data
@@ -82,7 +81,7 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
 
     def meta_fit(self, valid_tuples=None, verbose=True, log_period=500, n_iter=None):
         """
-        fits the VI and prior parameters of the  GPC model
+        meta-learns the GP prior parameters
 
         Args:
             valid_tuples: list of valid tuples, i.e. [(test_context_x_1, test_context_t_1, test_x_1, test_t_1), ...]
@@ -149,7 +148,8 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
 
     def predict(self, context_x, context_y, test_x, return_density=False):
         """
-        computes the predictive distribution of the targets p(t|test_x, test_context_x, context_y)
+        Performs posterior inference (target training) with (context_x, context_y) as training data and then
+        computes the predictive distribution of the targets p(y|test_x, test_context_x, context_y) in the test points
 
         Args:
             context_x: (ndarray) context input data for which to compute the posterior

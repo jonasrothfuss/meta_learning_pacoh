@@ -19,14 +19,14 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
                  optimizer='Adam', lr=1e-3, lr_decay=1.0, svi_batch_size=10, cov_type='diag',
                  task_batch_size=-1, normalize_data=True, random_seed=None):
         """
-        Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
-        neural network mean and covariance functions
+        PACOH-VI: Variational Inference on the PAC-optimal hyper-posterior with Gaussian family.
+        Meta-Learns a distribution over GP-priors.
 
         Args:
             meta_train_data: list of tuples of ndarrays[(train_x_1, train_t_1), ..., (train_x_n, train_t_n)]
             num_iter_fit: (int) number of gradient steps for fitting the parameters
-            prior_factor: (float) weighting of the hyper-prior (--> meta-regularization parameter)
             feature_dim: (int) output dimensionality of NN feature map for kernel function
+            prior_factor: (float) weighting of the hyper-prior (--> meta-regularization parameter)
             weight_prior_std (float): std of Gaussian hyper-prior on weights
             bias_prior_std (float): std of Gaussian hyper-prior on biases
             covar_module: (gpytorch.mean.Kernel) optional kernel module, default: RBF kernel
@@ -39,6 +39,7 @@ class GPRegressionMetaLearnedVI(RegressionModelMetaLearned):
             kernel (std): SVGD kernel, either 'RBF' or 'IMQ'
             bandwidth (float): bandwidth of kernel, if None the bandwidth is chosen via heuristic
             num_particles: (int) number particles to approximate the hyper-posterior
+            task_batch_size: (int) mini-batch size of tasks for estimating gradients
             normalize_data: (bool) whether the data should be normalized
             random_seed: (int) seed for pytorch
         """

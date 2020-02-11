@@ -133,7 +133,8 @@ class RegressionModelMetaLearned:
 
     def eval(self, context_x, context_y, test_x, test_y, flatten_y=True, **kwargs):
         """
-        Computes the average test log likelihood, rmse and calibration error n test data
+        Performs posterior inference (target training) with (context_x, context_y) as training data and then
+        computes the average test log likelihood, rmse and calibration error on (test_x, test_y)
 
         Args:
             context_x: (ndarray) context input data for which to compute the posterior
@@ -164,6 +165,7 @@ class RegressionModelMetaLearned:
 
     def eval_datasets(self, test_tuples, flatten_y=True, **kwargs):
         """
+        Performs meta-testing on multiple tasks / datasets.
         Computes the average test log likelihood, the rmse and the calibration error over multiple test datasets
 
         Args:
@@ -180,11 +182,25 @@ class RegressionModelMetaLearned:
         return np.mean(ll_list), np.mean(rmse_list), np.mean(calibr_err_list)
 
     def confidence_intervals(self, context_x, context_y, test_x, confidence=0.9, **kwargs):
+        """
+        Performs posterior inference (target training) with (context_x, context_y) as training data and then
+        computes the confidence intervals corresponding to predictions p(y|test_x, test_context_x, context_y) in the
+        test points
+
+        Args:
+            context_x: (ndarray) context input data for which to compute the posterior
+            context_y: (ndarray) context targets for which to compute the posterior
+            test_x: (ndarray) query input data of shape (n_samples, ndim_x)
+            confidence: (float) confidence corresponding to the prediction interval, must be in [0,1)
+
+        Returns:
+            (ucb, lcb) upper and lower confidence bound
+        """
         pred_dist = self.predict(context_x, context_y, test_x, return_density=True, **kwargs)
         pred_dist = self._vectorize_pred_dist(pred_dist)
 
         alpha = (1-confidence) / 2
-        ucb = pred_dist.icdf(torch.ones(test_x.shape) * (1-alpha))  # TODO: .shape or .size?
+        ucb = pred_dist.icdf(torch.ones(test_x.shape) * (1-alpha))
         lcb = pred_dist.icdf(torch.ones(test_x.shape) * alpha)
         return ucb, lcb
 

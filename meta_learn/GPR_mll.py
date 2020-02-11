@@ -5,7 +5,6 @@ import numpy as np
 
 from meta_learn.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
 from meta_learn.abstract import RegressionModel
-from meta_learn.util import _handle_input_dimensionality
 from config import device
 
 
@@ -15,8 +14,9 @@ class GPRegressionLearned(RegressionModel):
                  num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
                  optimizer='Adam', normalize_data=True, lr_scheduler=True, random_seed=None):
         """
-        Variational GP classification model (https://arxiv.org/abs/1411.2005) that supports prior learning with
-        neural network mean and covariance functions
+        Gaussian Process Regression with learnable mean and kernel function.
+        Note that this class does not perform any meta-learning. The GP priors mean and kernel function are learned
+        based on the same train dataset that is also used for posterior inference.
 
         Args:
             train_x: (ndarray) train inputs - shape: (n_sampls, ndim_x)
@@ -115,7 +115,7 @@ class GPRegressionLearned(RegressionModel):
 
     def fit(self, valid_x=None, valid_t=None, verbose=True, log_period=500, n_iter=None):
         """
-        fits prior parameters of the  GPR model by maximizing the mll of the training data
+        fits GP prior parameters of by maximizing the marginal log-likelihood (mll) of the training data
 
         Args:
             verbose: (boolean) whether to print training progress
