@@ -4,14 +4,14 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="meta-gp",
+    name="meta_learn",
     version="0.0.1",
     author="Jonas Rothfuss",
     author_email="jonas.rothfuss@gmail.com",
     description="Meta-Learning Gausssian Proccess Priors",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    package_dir={'meta-gp': 'meta_learn'},
+    package_dir={'meta_learn': 'meta_learn'},
     packages=setuptools.find_packages(),
     install_requires=[
         'numpy',
@@ -19,6 +19,8 @@ setuptools.setup(
         'gpytorch',
         'absl-py',
         'pyro-ppl',
-        'future'
+        'future',
+        'pandas',
+        'scipy'
     ],
 )

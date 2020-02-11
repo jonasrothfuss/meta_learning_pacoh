@@ -1,10 +1,7 @@
-import mnist
 import numpy as np
 import pandas as pd
 from scipy.stats import truncnorm
 import os
-import h5py
-import yaml
 import copy
 
 
@@ -137,6 +134,7 @@ class PhysionetDataset(MetaDataset):
 class MNISTRegressionDataset(MetaDataset):
 
     def __init__(self, random_state=None, dtype=np.float32):
+        import mnist
         super().__init__(random_state)
         self.dtype = dtype
 
@@ -426,6 +424,7 @@ class SwissfelDataset(MetaDataset):
         path = os.path.join(self.swissfel_dir, experiment)
 
         # read hdf5
+        import h5py
         hdf5_path = os.path.join(path, 'data/evaluations.hdf5')
         dset = h5py.File(hdf5_path, 'r')
         run = str(run)
@@ -438,6 +437,7 @@ class SwissfelDataset(MetaDataset):
         config_file = open(config_path, 'r')  # 'document.yaml' contains a single YAML document.
 
         # get config files for parameters
+        import yaml
         files = yaml.load(config_file)['swissfel.interface']['channel_config_set']
         if not isinstance(files, list):
             files = [files]
@@ -495,57 +495,6 @@ class SwissfelDataset(MetaDataset):
         meta_test_tuples = [(X[idx_context], Y[idx_context], X[idx_test], Y[idx_test]) for X, Y in meta_test_tuples]
 
         return meta_test_tuples
-
-
-""" Pendulum Dataset """
-from gym.envs.classic_control import PendulumEnv
-
-class PendulumDataset(MetaDataset):
-
-    def __init__(self, l_range=(0.6, 1.4), m_range=(0.6, 1.4), random_state=None):
-        self.l_range = l_range
-        self.m_range = m_range
-        super().__init__(random_state)
-
-    def generate_meta_train_data(self, n_tasks, n_samples):
-        meta_train_tuples = []
-        for i in range(n_tasks):
-            env = self._sample_env()
-            X, Y = self._sample_trajectory(env, n_samples)
-            del env
-            meta_train_tuples.append((X, Y))
-        return meta_train_tuples
-
-    def generate_meta_test_data(self, n_tasks, n_samples_context, n_samples_test):
-        assert n_samples_test > 0
-        meta_test_tuples = []
-        for i in range(n_tasks):
-            env = self._sample_env()
-            X, Y = self._sample_trajectory(env, n_samples_context+n_samples_test)
-            meta_test_tuples.append(
-                (X[:n_samples_context], Y[:n_samples_context], X[n_samples_context:], Y[n_samples_context:]))
-
-        return meta_test_tuples
-
-    def _sample_env(self):
-        env = PendulumEnv()
-        env.l = self.random_state.uniform(*self.l_range)
-        env.m = self.random_state.uniform(*self.m_range)
-        env.seed(self.random_state.randint(0, 10**6))
-        return env
-
-    def _sample_trajectory(self, env, length):
-        states = np.empty((length+1, 3))
-        actions = np.empty((length, 1))
-        states[0] = env.reset()
-        for i in range(length):
-            a = self.random_state.uniform(env.action_space.low, env.action_space.high)
-            s, _, _, _ = env.step(a)  # take a random action
-            states[i+1], actions[i] = s, a
-        x = np.concatenate([states[:-1], actions], axis=-1)
-        y = states[1:]
-        return x, y
-
 
 """ Data provider """
 
