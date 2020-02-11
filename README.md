@@ -63,8 +63,9 @@ log_likelihood, rmse, calib_error = meta_gp.eval_datasets(meta_test_data)
 
 
 ## Reproducing the experiments
-
-
+Below we point to the experiment scripts that were used to generate the results reported in the paper. 
+Note that all of the experiment scripts use multiprocessing and were written for machines / high-performance 
+clusters designed heavy workloads. Please take this into consideration, before launching any of the experiment scripts.
 ### Meta-overfitting experiments
 
 To run the experiments:

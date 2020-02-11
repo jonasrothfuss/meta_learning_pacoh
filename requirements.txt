@@ -14,6 +14,5 @@ tensorflow
 hyperopt
 ray[tune]
 tables
-gym
 h5py
 pyyaml
