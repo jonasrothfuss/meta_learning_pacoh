@@ -15,12 +15,12 @@ The **experiments** directory holds code for synthetic task-environments and pro
 the experimental results reported in the paper.
 
 ## Installation
-To install the minimal dependencies needed use the meta-learning algorithms, run in the main directory of this repository
+To install the minimal dependencies needed to use the meta-learning algorithms, run in the main directory of this repository
 ```bash
 pip install .
 ``` 
 
-For full support of all scripts in the repository, e.g. to reproduce the experiments, further dependencies need to be installed. 
+For full support of all scripts in the repository, for instance to reproduce the experiments, further dependencies need to be installed. 
 To do so, please run in the main directory of this repository 
 ```bash
 pip install -r requirements.txt
