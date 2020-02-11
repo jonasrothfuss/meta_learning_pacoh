@@ -16,4 +16,4 @@ ray[tune]
 tables
 gym
 h5py
-yaml
+pyyaml
