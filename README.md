@@ -1,7 +1,7 @@
-[![Build Status](https://travis-ci.com/jonasrothfuss/meta_learning_gp_priors.svg?token=j5XSZzvzzLqAy58VEYoC&branch=master)](https://travis-ci.com/jonasrothfuss/meta_learning_gp_priors)
+[![Build Status](https://travis-ci.com/jonasrothfuss/meta_learning_pacoh.svg?branch=master)](https://travis-ci.com/jonasrothfuss/meta_learning_pacoh)
 
 # PACOH: Bayes-Optimal Meta-Learning with PAC-Guarantees
-This repository provides ssource code corresponding the paper *PACOH: Bayes-Optimal Meta-Learning with PAC-Guarantees*. 
+This repository provides ssource code corresponding the paper [*PACOH: Bayes-Optimal Meta-Learning with PAC-Guarantees*](https://arxiv.org/abs/2002.05551). 
 In particular, the **meta_learn** package holds implementations of the following meta-learning algorithms:
 
 * PACOH-MAP
