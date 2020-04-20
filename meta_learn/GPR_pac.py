@@ -3,7 +3,7 @@ import time
 import torch
 import numpy as np
 
-from meta_learn.models import LearnedGPRegressionModel, NeuralNetwork, AffineTransformedDistribution
+from meta_learn.models import LearnedGPRegressionModelApproximate, NeuralNetwork, AffineTransformedDistribution
 from meta_learn.abstract import RegressionModel
 from config import device
 
@@ -81,15 +81,16 @@ class GPRegressionLearnedPAC(RegressionModel):
         elif mean_module == 'zero':
             mean_module = gpytorch.means.ZeroMean().to(device)
 
-        # C) setup GP model
+        # C) setup variational GP model
 
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood().to(device)
         self.parameters.append({'params': self.likelihood.parameters(), 'lr': self.lr})
 
-        self.model = LearnedGPRegressionModel(self.train_x_tensor, self.train_t_tensor, self.likelihood,
+        self.model = LearnedGPRegressionModelApproximate(self.train_x_tensor, self.train_t_tensor, self.likelihood,
                                               learned_kernel=nn_kernel_map, learned_mean=nn_mean_fn,
                                               covar_module=covar_module, mean_module=mean_module)
 
+        self.parameters.append({'params': self.model.variational_parameters(), 'lr': self.lr})
 
         # D) determine which parameters are trained and setup optimizer
 
@@ -140,7 +141,7 @@ class GPRegressionLearnedPAC(RegressionModel):
                 self.optimizer.zero_grad()
 
                 ll = self.model.pred_ll(self.train_x_tensor, self.train_t_tensor)
-                kl = self.model.kl(self.train_x_tensor)
+                kl = self.model.kl()
                 n = torch.tensor(self.train_x_tensor.shape[0], dtype=torch.float32)
 
                 # mc allester pac bound
@@ -239,7 +240,7 @@ if __name__ == "__main__":
     y_data_train, y_data_test = y_data[:n_train_samples].numpy(), y_data[n_train_samples:].numpy()
 
     gp_mll = GPRegressionLearnedPAC(x_data_train, y_data_train, mean_module='NN', covar_module='SE', mean_nn_layers=(32, 32, 32, 32), weight_decay=0.5,
-                                 num_iter_fit=2500)
+                                 num_iter_fit=5000)
     gp_mll.fit(x_data_test, y_data_test)
 
 

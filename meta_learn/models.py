@@ -500,6 +500,7 @@ class LearnedGPRegressionModel(gpytorch.models.ExactGP):
 
         self.learned_kernel = learned_kernel
         self.learned_mean = learned_mean
+        self.likelihood = likelihood
 
     def forward(self, x):
         # feed through kernel NN
@@ -516,3 +517,78 @@ class LearnedGPRegressionModel(gpytorch.models.ExactGP):
 
         covar_x = self.covar_module(projected_x)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+    def prior(self, x):
+        self.train()
+        return self.__call__(x)
+
+    def posterior(self, x):
+        self.eval()
+        return self.__call__(x)
+
+    def kl(self, x):
+        return torch.distributions.kl.kl_divergence(self.posterior(x), self.prior(x))
+
+    def pred_dist(self, x):
+        self.eval()
+        return self.likelihood(self.__call__(x))
+
+    def pred_ll(self, x, y):
+        pred_dist = self.pred_dist(x)
+        return pred_dist.log_prob(y)
+
+
+from gpytorch.models.approximate_gp import ApproximateGP
+from gpytorch.variational import CholeskyVariationalDistribution
+from gpytorch.variational import VariationalStrategy
+
+class LearnedGPRegressionModelApproximate(ApproximateGP):
+    """GP model which can take a learned mean and learned kernel function."""
+    def __init__(self, train_x, train_y, likelihood, learned_kernel=None, learned_mean=None, mean_module=None,
+                 covar_module=None, beta=1.0):
+
+        self.beta = beta
+        self.n_train_samples = train_x.size(0)
+
+        variational_distribution = CholeskyVariationalDistribution(self.n_train_samples)
+        variational_strategy = VariationalStrategy(self, train_x, variational_distribution,
+                                                   learn_inducing_locations=False)
+        super().__init__(variational_strategy)
+
+        if mean_module is None:
+            self.mean_module = gpytorch.means.ZeroMean()
+        else:
+            self.mean_module = mean_module
+
+        self.covar_module = covar_module
+
+        self.learned_kernel = learned_kernel
+        self.learned_mean = learned_mean
+        self.likelihood = likelihood
+
+    def forward(self, x):
+        # feed through kernel NN
+        if self.learned_kernel is not None:
+            projected_x = self.learned_kernel(x)
+        else:
+            projected_x = x
+
+        # feed through mean module
+        if self.learned_mean is not None:
+            mean_x = self.learned_mean(x).squeeze()
+        else:
+            mean_x = self.mean_module(projected_x).squeeze()
+
+        covar_x = self.covar_module(projected_x)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+
+    def kl(self):
+        return self.variational_strategy.kl_divergence()
+
+    def pred_dist(self, x):
+        self.eval()
+        return self.likelihood(self.__call__(x))
+
+    def pred_ll(self, x, y):
+        variational_dist_f = self.__call__(x)
+        return self.likelihood.expected_log_prob(y, variational_dist_f).sum(-1)
