@@ -153,15 +153,14 @@ class RegressionModelMetaLearned:
         else:
             test_y_tensor = torch.unsqueeze(torch.from_numpy(test_y).float().to(device), dim=0)
 
-        with torch.no_grad():
-            pred_dist = self.predict(context_x, context_y, test_x, return_density=True, **kwargs)
-            avg_log_likelihood = torch.mean(pred_dist.log_prob(test_y_tensor) / test_y_tensor.shape[0])
-            rmse = torch.mean(torch.pow(pred_dist.mean - test_y_tensor, 2)).sqrt()
+        pred_dist = self.predict(context_x, context_y, test_x, return_density=True, **kwargs)
+        avg_log_likelihood = torch.mean(pred_dist.log_prob(test_y_tensor) / test_y_tensor.shape[0])
+        rmse = torch.mean(torch.pow(pred_dist.mean - test_y_tensor, 2)).sqrt()
 
-            pred_dist_vect = self._vectorize_pred_dist(pred_dist)
-            calibr_error = self._calib_error(pred_dist_vect, test_y_tensor)
-            
-            return avg_log_likelihood.cpu().item(), rmse.cpu().item(), calibr_error.cpu().item()
+        pred_dist_vect = self._vectorize_pred_dist(pred_dist)
+        calibr_error = self._calib_error(pred_dist_vect, test_y_tensor)
+
+        return avg_log_likelihood.cpu().item(), rmse.cpu().item(), calibr_error.cpu().item()
 
     def eval_datasets(self, test_tuples, flatten_y=True, **kwargs):
         """

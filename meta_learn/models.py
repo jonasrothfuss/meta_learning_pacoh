@@ -548,7 +548,7 @@ class LearnedGPRegressionModelApproximate(ApproximateGP):
                  covar_module=None, beta=1.0):
 
         self.beta = beta
-        self.n_train_samples = train_x.size(0)
+        self.n_train_samples = train_x.shape[0]
 
         variational_distribution = CholeskyVariationalDistribution(self.n_train_samples)
         variational_strategy = VariationalStrategy(self, train_x, variational_distribution,

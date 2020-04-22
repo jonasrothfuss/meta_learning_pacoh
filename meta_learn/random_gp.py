@@ -51,7 +51,7 @@ class VectorizedGP(VectorizedModel):
         self.noise_raw = self._param('noise_raw', torch.zeros(1, 1))
 
 
-    def forward(self, x_data, y_data, train=True):
+    def forward(self, x_data, y_data, train=True, prior=False):
         assert x_data.ndim == 3
 
         if self.mean_module_str == 'NN':
@@ -74,14 +74,19 @@ class VectorizedGP(VectorizedModel):
         likelihood = GaussianLikelihoodLight(noise)
         gp = LearnedGPRegressionModel(x_data, y_data, likelihood, mean_module=mean_module, covar_module=covar_module,
                                       learned_mean=learned_mean, learned_kernel=learned_kernel)
-        if train:
-            mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, gp)
-            output = gp(x_data)
-            return likelihood(output), mll(output, y_data)
-        else: # --> eval
-            gp.eval()
-            likelihood.eval()
+        if prior:
+            gp.train()
+            likelihood.train()
             return gp, likelihood
+        else:
+            if train:
+                mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, gp)
+                output = gp(x_data)
+                return likelihood(output), mll(output, y_data)
+            else: # --> eval
+                gp.eval()
+                likelihood.eval()
+                return gp, likelihood
 
     def parameter_shapes(self):
         return OrderedDict([(name, param.shape) for name, param in self.named_parameters().items()])
