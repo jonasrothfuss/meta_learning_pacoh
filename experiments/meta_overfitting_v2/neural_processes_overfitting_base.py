@@ -13,26 +13,29 @@ from meta_learn.util import get_logger
 from experiments.util import *
 from experiments.data_sim import SinusoidNonstationaryDataset, MNISTRegressionDataset, \
     PhysionetDataset, GPFunctionsDataset, SinusoidDataset, CauchyDataset, provide_data
-from meta_learn.MAML import MAMLRegression
+from meta_learn.NPR_meta import NPRegressionMetaLearned
 
 import torch
 
-flags.DEFINE_string('exp_name', default='meta-overfitting-v2-maml-base-exp',
+flags.DEFINE_string('exp_name', default='meta-overfitting-v2-nps-base-exp',
                     help='name of the folder in which to dump logs and results')
 
 flags.DEFINE_integer('seed', default=28, help='random seed')
 flags.DEFINE_integer('data_seed', default=2158, help='random seed')
 flags.DEFINE_integer('n_threads', default=4, help='number of threads')
 
-# Configuration for GP-Prior learning
-flags.DEFINE_integer('num_layers', default=4, help='number of neural network layers for GP-prior NNs')
-flags.DEFINE_integer('layer_size', default=128, help='number of neural network layers for GP-prior NNs')
+# Configuration for NP model learning
+flags.DEFINE_integer('r_dim', default=50, help='dimensionality of the context representation')
+flags.DEFINE_integer('z_dim', default=50, help='dimensionality of the latent variable')
+flags.DEFINE_integer('h_dim', default=60, help='layer width of encoder and decoder')
+
 
 flags.DEFINE_float('lr', default=1e-3, help='learning rate for AdamW optimizer')
-flags.DEFINE_float('lr_inner', default=0.05, help='learning rate for AdamW optimizer')
+flags.DEFINE_float('lr_decay', default=1.0, help='multiplicative learning rate decay parameter')
+flags.DEFINE_float('weight_decay', default=0.05, help='multiplicative weight decay parameter for AdamW optimizer')
 flags.DEFINE_integer('batch_size', 5, help='batch size for meta training, i.e. number of tasks for computing grads')
 flags.DEFINE_string('optimizer', default='Adam', help='type of optimizer to use - either \'SGD\' or \'ADAM\'')
-flags.DEFINE_integer('n_iter_fit', default=50000, help='number of gradient steps')
+flags.DEFINE_integer('n_iter_fit', default=30000, help='number of gradient steps')
 
 # Configuration w.r.t. data
 flags.DEFINE_boolean('normalize_data', default=True, help='whether to normalize the data')
@@ -73,7 +76,6 @@ def main(argv):
         meta_test_data = dataset.generate_meta_test_data(n_tasks=FLAGS.n_test_tasks, n_samples_context=FLAGS.n_context_samples,
                                                     n_samples_test=FLAGS.n_test_samples)
 
-    nn_layers = tuple([FLAGS.layer_size for _ in range(FLAGS.num_layers)])
     torch.set_num_threads(FLAGS.n_threads)
 
     # only take meta-train context for training
@@ -82,26 +84,32 @@ def main(argv):
     data_train = [(context_x, context_y) for context_x, context_y, _, _ in meta_train_data]
     assert len(data_train) == FLAGS.n_train_tasks
 
-    gp_meta = MAMLRegression(data_train,
-                              num_iter_fit=FLAGS.n_iter_fit,
-                              layer_sizes=nn_layers,
-                              task_batch_size=FLAGS.batch_size,
-                              lr_inner=FLAGS.lr_inner,
-                              lr_meta=FLAGS.lr,
-                              random_seed=FLAGS.seed,
-                              optimizer=FLAGS.optimizer,
-                              normalize_data=FLAGS.normalize_data
-                              )
+    npr = NPRegressionMetaLearned(data_train,
+                                      num_iter_fit=FLAGS.n_iter_fit,
+                                      r_dim=FLAGS.r_dim,
+                                      z_dim=FLAGS.z_dim,
+                                      h_dim=FLAGS.h_dim,
+                                      weight_decay=FLAGS.weight_decay,
+                                      task_batch_size=FLAGS.batch_size,
+                                      lr_params=FLAGS.lr,
+                                      random_seed=FLAGS.seed,
+                                      optimizer=FLAGS.optimizer,
+                                      normalize_data=FLAGS.normalize_data
+                                      )
 
-    gp_meta.meta_fit(log_period=1000)
+    npr.meta_fit(log_period=1000)
 
-    test_rmse_meta_train = gp_meta.eval_datasets(meta_train_data)
-    test_rmse_meta_test = gp_meta.eval_datasets(meta_test_data)
+    test_ll_meta_train, test_rmse_meta_train, calib_err_meta_train = npr.eval_datasets(meta_train_data, flatten_y=False)
+    test_ll_meta_test, test_rmse_meta_test, calib_err_test = npr.eval_datasets(meta_test_data, flatten_y=False)
 
     # save results
     results_dict = {
+        'test_ll_meta_train': test_ll_meta_train,
+        'test_ll_meta_test': test_ll_meta_test,
         'test_rmse_meta_train': test_rmse_meta_train,
         'test_rmse_meta_test': test_rmse_meta_test,
+        'calib_err_meta_train': calib_err_meta_train,
+        'calib_err_test': calib_err_test
     }
 
     pprint(results_dict)

@@ -1,7 +1,6 @@
 import os
 import sys
 import hashlib
-import numpy as np
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(BASE_DIR)
@@ -20,7 +19,7 @@ N_THREADS = 1
 
 def main(argv):
     from experiments.util import AsyncExecutor, generate_launch_commands
-    import experiments.meta_overfitting_v2.meta_GPR_overfitting_base
+    import experiments.meta_overfitting_v2.maml_overfitting_base
 
     command_list = []
 
@@ -33,17 +32,15 @@ def main(argv):
             raise AssertionError('dataset must be either of [sin, cauchy]')
 
         exp_config = {
-            'exp_name': ['meta-overfitting-v2-pacoh-map-%s'%dataset],
+            'exp_name': ['meta-overfitting-v2-maml-%s'%dataset],
             'dataset': [dataset],
             'n_threads': [N_THREADS],
             'seed': list(range(30, 55)),
             'data_seed': [28],
-            'weight_decay': list(np.logspace(-2, -0.25, num=10)),
-            'covar_module': ['NN'],
-            'mean_module': ['NN'],
             'num_layers': [4],
             'layer_size': [32],
-            'n_iter_fit': [30000],
+            'n_iter_fit': [50000],
+            'lr_inner': [0.01, 0.02, 0.05],
             'n_train_tasks': [2, 4, 8, 16, 32, 64, 128, 256, 512],
             'n_test_tasks': [200],
             'n_context_samples': n_context_samples,
@@ -51,7 +48,7 @@ def main(argv):
         }
 
         command_list.extend(
-            generate_launch_commands(experiments.meta_overfitting_v2.meta_GPR_overfitting_base, exp_config))
+            generate_launch_commands(experiments.meta_overfitting_v2.maml_overfitting_base, exp_config))
 
     if FLAGS.cluster :
         cluster_cmds = []
