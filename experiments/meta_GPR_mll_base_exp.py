@@ -24,8 +24,8 @@ flags.DEFINE_integer('n_threads', default=4, help='number of threads')
 
 # Configuration for GP-Prior learning
 flags.DEFINE_string('learning_mode', default='both', help='specifies what to use as mean function of the GP prior')
-flags.DEFINE_string('mean_module', default='constant', help='specifies what to use as mean function of the GP prior')
-flags.DEFINE_string('covar_module', default='SE', help='specifies what to use as kernel function of the GP prior')
+flags.DEFINE_string('mean_module', default='NN', help='specifies what to use as mean function of the GP prior')
+flags.DEFINE_string('covar_module', default='NN', help='specifies what to use as kernel function of the GP prior')
 flags.DEFINE_integer('num_layers', default=4, help='number of neural network layers for GP-prior NNs')
 flags.DEFINE_integer('layer_size', default=128, help='number of neural network layers for GP-prior NNs')
 
@@ -38,12 +38,12 @@ flags.DEFINE_integer('n_iter_fit', default=100000, help='number of gradient step
 
 # Configuration w.r.t. data
 flags.DEFINE_boolean('normalize_data', default=True, help='whether to normalize the data')
-flags.DEFINE_string('dataset', default='gp-funcs', help='meta learning dataset')
-flags.DEFINE_integer('n_train_tasks', default=10, help='number of train tasks')
-flags.DEFINE_integer('n_train_samples', default=20, help='number of train samples per task')
+flags.DEFINE_string('dataset', default='sin', help='meta learning dataset')
+flags.DEFINE_integer('n_train_tasks', default=20, help='number of train tasks')
+flags.DEFINE_integer('n_train_samples', default=5, help='number of train samples per task')
 
 flags.DEFINE_integer('n_test_tasks', default=100, help='number of test tasks')
-flags.DEFINE_integer('n_context_samples', default=20, help='number of test context points per task')
+flags.DEFINE_integer('n_context_samples', default=5, help='number of test context points per task')
 flags.DEFINE_integer('n_test_samples', default=500, help='number of test evaluation points per task')
 
 FLAGS = flags.FLAGS
