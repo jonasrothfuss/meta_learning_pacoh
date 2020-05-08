@@ -128,7 +128,7 @@ def main(args):
         'lr_decay': 0.97,
         'lr_params': 1e-3,
         'r_dim': [32, 64, 124],
-        'weight_decay': [1e-4, 1e-3, 1e-2, 1e-1, 2e-1, 4e-1, 8e-1]
+        'weight_decay': [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 2e-1, 4e-1, 8e-1]
     },
     ]
 
