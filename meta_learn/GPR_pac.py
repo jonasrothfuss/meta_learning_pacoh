@@ -10,7 +10,7 @@ from config import device
 
 class GPRegressionLearnedPAC(RegressionModel):
 
-    def __init__(self, train_x, train_t, learning_mode='both', lr=1e-3, delta = 0.1, weight_decay=0.0, feature_dim=2,
+    def __init__(self, train_x, train_t, learning_mode='both', lr=1e-3, delta=0.1, weight_decay=0.0, feature_dim=2,
                  num_iter_fit=1000, covar_module='NN', mean_module='NN', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
                  optimizer='Adam', normalize_data=True, lr_scheduler=True, random_seed=None):
         """
@@ -89,6 +89,8 @@ class GPRegressionLearnedPAC(RegressionModel):
         self.model = LearnedGPRegressionModelApproximate(self.train_x_tensor, self.train_t_tensor, self.likelihood,
                                               learned_kernel=nn_kernel_map, learned_mean=nn_mean_fn,
                                               covar_module=covar_module, mean_module=mean_module)
+        self.model.eval()
+        self.model(self.train_x_tensor)
 
         self.parameters.append({'params': self.model.variational_parameters(), 'lr': self.lr})
 
@@ -140,8 +142,10 @@ class GPRegressionLearnedPAC(RegressionModel):
 
                 self.optimizer.zero_grad()
 
-                ll = self.model.pred_ll(self.train_x_tensor, self.train_t_tensor)
-                kl = self.model.kl()
+                posterior = self.model.variational_distribution()
+                prior = self.model.forward(self.train_x_tensor)
+                ll = self.likelihood.expected_log_prob(self.train_t_tensor, posterior).mean(-1)#self.model.pred_ll(self.train_x_tensor, self.train_t_tensor)
+                kl = torch.distributions.kl_divergence(posterior, prior)
                 n = torch.tensor(self.train_x_tensor.shape[0], dtype=torch.float32)
 
                 # mc allester pac bound
@@ -234,17 +238,18 @@ if __name__ == "__main__":
     x_data = torch.normal(mean=-1, std=2.0, size=(n_train_samples + n_test_samples, 1))
     W = torch.tensor([[0.6]])
     b = torch.tensor([-1])
-    y_data = x_data.matmul(W.T) + torch.sin((0.6 * x_data)**2) + b + torch.normal(mean=0.0, std=0.1, size=(n_train_samples + n_test_samples, 1))
+    y_data = x_data.matmul(W.T) + torch.sin((0.6 * x_data)**2) + b + torch.normal(mean=0.0, std=0.1, size=(n_train_samples + n_test_samples, 1)) + 10
 
     x_data_train, x_data_test = x_data[:n_train_samples].numpy(), x_data[n_train_samples:].numpy()
     y_data_train, y_data_test = y_data[:n_train_samples].numpy(), y_data[n_train_samples:].numpy()
 
-    gp_mll = GPRegressionLearnedPAC(x_data_train, y_data_train, mean_module='NN', covar_module='SE', mean_nn_layers=(32, 32, 32, 32), weight_decay=0.5,
-                                 num_iter_fit=5000)
+    gp_mll = GPRegressionLearnedPAC(x_data_train, y_data_train, learning_mode='vanilla',
+                                    mean_module='constant', covar_module='SE', mean_nn_layers=(32, 32, 32, 32), weight_decay=0.5,
+                                    num_iter_fit=5000, normalize_data=True, lr=1e-2)
     gp_mll.fit(x_data_test, y_data_test)
 
 
-    x_plot = np.linspace(6, -6, num=200)
+    x_plot = np.linspace(-10, 10, num=200)
     gp_mll.confidence_intervals(x_plot)
 
     pred_mean, pred_std = gp_mll.predict(x_plot)

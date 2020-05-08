@@ -19,7 +19,7 @@ class GPRegressionMetaLearnedPAC(RegressionModelMetaLearned):
                  delta=0.1, task_kl_weight=1.0, meta_kl_weight=1.0, posterior_lr_multiplier=1.0,
                  covar_module='SE', mean_module='zero', mean_nn_layers=(32, 32), kernel_nn_layers=(32, 32),
                  optimizer='Adam', lr=1e-3, lr_decay=1.0, svi_batch_size=5, cov_type='diag',
-                 task_batch_size=4, normalize_data=True, random_seed=None):
+                 task_batch_size=-1, likelihood_noise_init=0.01, normalize_data=True, random_seed=None):
         """
         PACOH-VI: Variational Inference on the PAC-optimal hyper-posterior with Gaussian family.
         Meta-Learns a distribution over GP-priors.
@@ -75,6 +75,7 @@ class GPRegressionMetaLearnedPAC(RegressionModelMetaLearned):
         self.meta_train_params.append({'params': self.hyper_posterior.parameters(), 'lr': lr})
 
         self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
+        self.likelihood.noise = likelihood_noise_init * torch.ones((1,))
         self.meta_train_params.append({'params': self.likelihood.parameters(), 'lr': lr})
 
         # Setup components that are different across tasks
@@ -195,12 +196,14 @@ class GPRegressionMetaLearnedPAC(RegressionModelMetaLearned):
         for task_dict, test_tuple in zip(task_dicts, test_tuples):
             # data prep
             _, _, test_x, test_y = test_tuple
+            test_x, test_y = _handle_input_dimensionality(test_x, test_y)
             test_x_tensor = torch.from_numpy(self._normalize_data(X=test_x, Y=None)).float().to(device)
             test_y_tensor = torch.from_numpy(test_y).float().flatten().to(device)
 
             # get predictive dist
             gp_model = task_dict["gp_model"]
             gp_model.eval()
+            self.likelihood.eval()
             pred_dist = self.likelihood(gp_model(test_x_tensor))
             pred_dist = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
                                                       normalization_std=self.y_std)
@@ -237,15 +240,27 @@ class GPRegressionMetaLearnedPAC(RegressionModelMetaLearned):
             # a) prepare data
             x_tensor, y_tensor = self._prepare_data_per_task(train_x, train_y)
             task_dict['train_x'], task_dict['train_y'] = x_tensor, y_tensor
+
+            prior_param_sample = self.hyper_posterior.sample(sample_shape=(20,))
+            mean_module, covar_module = self._aggregate_gp_priors(prior_param_sample)
+
             task_dict['gp_model'] = LearnedGPRegressionModelApproximate(x_tensor, y_tensor, self.likelihood,
-                                                                        mean_module=gpytorch.means.ZeroMean(),
-                                                                        covar_module=gpytorch.kernels.RBFKernel())
+                                                                        mean_module=mean_module,
+                                                                        covar_module=covar_module)
+            init_mean = mean_module(x_tensor)
+            init_mean += 1e-3 * torch.randn_like(init_mean)
+            task_dict['gp_model'].variational_distribution.variational_mean.data.copy_(init_mean)
+
+            prior_covar = covar_module(x_tensor)
+            init_chol_covar = torch.cholesky(prior_covar + 1e-3 * torch.eye(prior_covar.shape[0]))
+            task_dict['gp_model'].variational_distribution.chol_variational_covar.data.copy_(init_chol_covar)
+
             parameters.extend(task_dict['gp_model'].variational_parameters())
             task_dicts.append(task_dict)
 
         return task_dicts, parameters
 
-    def _meta_test_inference(self, context_tuples, n_iter=3000, lr=1e-2, log_period=100, verbose=False):
+    def _meta_test_inference(self, context_tuples, n_iter=5000, lr=1e-2, log_period=100, verbose=False):
         n_tasks = len(context_tuples)
         task_dicts, posterior_params = self._setup_task_dicts(context_tuples)
 
@@ -257,7 +272,8 @@ class GPRegressionMetaLearnedPAC(RegressionModelMetaLearned):
             param_sample = self.hyper_posterior.rsample(sample_shape=(self.svi_batch_size,))
             task_pac_bounds, diagnostics_dict = self._task_pac_bounds(task_dicts, param_sample,
                                                                task_kl_weight=self.task_kl_weight,
-                                                               meta_kl_weight=self.meta_kl_weight)
+                                                               meta_kl_weight=self.meta_kl_weight,
+                                                               meta_test=True)
             loss = torch.sum(torch.stack(task_pac_bounds))
             loss.backward()
             optimizer.step()
@@ -299,7 +315,7 @@ class GPRegressionMetaLearnedPAC(RegressionModelMetaLearned):
             return torch.mean(self.hyper_posterior.log_prob(prior_param_sample) -
                                   self.random_gp.hyper_prior.log_prob(prior_param_sample))
 
-        def _task_pac_bounds(task_dicts, prior_param_sample, task_kl_weight=1.0, meta_kl_weight=1.0):
+        def _task_pac_bounds(task_dicts, prior_param_sample, task_kl_weight=1.0, meta_kl_weight=1.0, meta_test=False):
 
             fn = self.random_gp.get_forward_fn(prior_param_sample)
 
@@ -307,7 +323,10 @@ class GPRegressionMetaLearnedPAC(RegressionModelMetaLearned):
 
             task_pac_bounds = []
             for task_dict in task_dicts:
-                posterior = task_dict["gp_model"](task_dict["train_x"])
+                if meta_test:
+                    posterior = task_dict["gp_model"](task_dict["train_x"])
+                else:
+                    posterior = task_dict["gp_model"].variational_distribution() #
 
                 # likelihood
                 avg_ll = torch.mean(self.likelihood.expected_log_prob(task_dict["train_y"], posterior))
@@ -315,7 +334,7 @@ class GPRegressionMetaLearnedPAC(RegressionModelMetaLearned):
                 # task complexity
                 x_data_tiled, y_data_tiled = _tile_data_tuple(task_dict, self.svi_batch_size)
                 gp, _ = fn(x_data_tiled, None, prior=True)
-                prior = gp(x_data_tiled)
+                prior = gp.forward(x_data_tiled)
 
                 kl_inner = task_kl_weight * torch.mean(_kl_divergence_safe(posterior.expand(
                     (self.svi_batch_size,)), prior))
@@ -370,7 +389,6 @@ class GPRegressionMetaLearnedPAC(RegressionModelMetaLearned):
         # converts a multivariate gaussian into a vectorized univariate gaussian
         return torch.distributions.Normal(pred_dist.mean, pred_dist.stddev)
 
-
     def prior_mean(self, x, n_hyperposterior_samples=1000):
         x = (x - self.x_mean) / self.x_std
         assert x.ndim == 1 or (x.ndim == 2 and x.shape[-1] == 1)
@@ -386,7 +404,35 @@ class GPRegressionMetaLearnedPAC(RegressionModelMetaLearned):
             # torch.mean(gp.learned_mean(x_data_tiled), axis=0).numpy() * self.y_std + self.y_mean
         return mean
 
+    def _aggregate_gp_priors(self, prior_param_sample, jitter=1e-5):
+        assert prior_param_sample.ndim == 2
+        n_samples = prior_param_sample.shape[0]
+        forward_fn = self.random_gp.get_forward_fn(prior_param_sample)
 
+        def _tile(x_data):
+            assert x_data.ndim == 2
+            return x_data.view(torch.Size((1,)) + x_data.shape).repeat(n_samples, 1, 1)
+
+        def mean_module(x):
+            gp, _ = forward_fn(_tile(x), None, prior=True)
+            mean = torch.mean(gp.forward(x).mean, axis=0)
+            return mean
+
+        def covar_module(x):
+            gp, _ = forward_fn(_tile(x), None, prior=True)
+            dist = gp.forward(x)
+            mean = torch.mean(dist.mean, axis=0)
+
+            # cov due to difference in individual means
+            residual = dist.mean - mean
+            # batched outer product of residuals followed by mean over the
+            cov_loc = torch.mean(torch.bmm(residual.unsqueeze(2), residual.unsqueeze(1)), axis=0)
+
+            # average of individual covs
+            cov_var = torch.mean(dist.covariance_matrix, axis=0)
+            return cov_loc + cov_var + 1e-5*torch.eye(cov_var.shape[0])
+
+        return mean_module, covar_module
 
 """ helper functions """
 
@@ -408,12 +454,16 @@ def _add_jitter(distr, eps=1e-6):
 
 if __name__ == "__main__":
     """ 1) Generate some training data from GP prior """
-    from experiments.data_sim import SinusoidDataset
+    from experiments.data_sim import SwissfelDataset
 
-    data_sim = SinusoidDataset(random_state=np.random.RandomState(26))
+    # data_sim = SwissfelDataset(random_state=np.random.RandomState(26))
+    #
+    # meta_train_data = data_sim.generate_meta_train_data(n_tasks=50, n_samples=20)
+    # meta_test_data = data_sim.generate_meta_test_data(n_tasks=50, n_samples_context=20, n_samples_test=160)
 
-    meta_train_data = data_sim.generate_meta_train_data(n_tasks=50, n_samples=20)
-    meta_test_data = data_sim.generate_meta_test_data(n_tasks=50, n_samples_context=20, n_samples_test=160)
+    from experiments.data_sim import provide_data
+    meta_train_data, meta_test_data, _ = provide_data(dataset='sin_20')
+
 
     NN_LAYERS = (32, 32, 32, 32)
 
@@ -430,22 +480,22 @@ if __name__ == "__main__":
 
     print('\n ---- GPR PAC meta-learning ---- ')
 
-    torch.set_num_threads(2)
+    torch.set_num_threads(4)
 
     gp_model = GPRegressionMetaLearnedPAC(meta_train_data, num_iter_fit=20000, task_kl_weight=1.0,
-                                          meta_kl_weight=0.0,
-                                          svi_batch_size=10, task_batch_size=4,
-                                          covar_module='SE', mean_module='NN', mean_nn_layers=NN_LAYERS,
-                                          kernel_nn_layers=NN_LAYERS, cov_type='diag')
+                                          meta_kl_weight=1e-5, lr=1e-3, lr_decay=0.97, posterior_lr_multiplier=5.0,
+                                          svi_batch_size=5, task_batch_size=5,
+                                          covar_module='NN', mean_module='NN', mean_nn_layers=NN_LAYERS,
+                                          kernel_nn_layers=NN_LAYERS, cov_type='diag', normalize_data=True)
 
 
-    for i in range(10):
+    for i in range(2):
         itrs = 0
-        gp_model.meta_fit(valid_tuples=meta_test_data[:5], log_period=500, eval_period=20000, n_iter=10000)
+        gp_model.meta_fit(valid_tuples=meta_test_data[:10], log_period=500, eval_period=10000, n_iter=10000)
         itrs += 10000
 
-        for j in range(3):
-            x_plot = np.linspace(-8, 8, num=150)
+        for j in range(1):
+            x_plot = np.linspace(-10, 10, num=150)
             prior_mean = gp_model.prior_mean(x_plot)
             plt.plot(x_plot, prior_mean, color='green')
 
@@ -458,3 +508,8 @@ if __name__ == "__main__":
             plt.fill_between(x_plot, (pred_mean - pred_std).flatten(), (pred_mean + pred_std).flatten(), alpha=0.2, color='blue')
             plt.title('GPR meta PAC meta-test Nr%i (itrs = %i)' % (j, itrs))
             plt.show()
+
+    ll, rmse, calib_err = gp_model.eval_datasets(meta_test_data, n_iter_meta_test=2000)
+    print('ll', ll)
+    print('rmse', rmse)
+    print('calib_err', calib_err)

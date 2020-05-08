@@ -582,6 +582,9 @@ class LearnedGPRegressionModelApproximate(ApproximateGP):
         covar_x = self.covar_module(projected_x)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
+    def prior(self, x):
+        return self.forward(x)
+
     def kl(self):
         return self.variational_strategy.kl_divergence()
 
@@ -592,3 +595,7 @@ class LearnedGPRegressionModelApproximate(ApproximateGP):
     def pred_ll(self, x, y):
         variational_dist_f = self.__call__(x)
         return self.likelihood.expected_log_prob(y, variational_dist_f).sum(-1)
+
+    @property
+    def variational_distribution(self):
+        return self.variational_strategy._variational_distribution
