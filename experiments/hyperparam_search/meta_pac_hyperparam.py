@@ -9,7 +9,8 @@ import math
 
 from ray import tune
 
-from ray.tune.suggest.hyperopt import HyperOptSearch
+from custom_tune import HyperOptSearch
+import custom_tune
 from ray.tune import Analysis
 from hyperopt import hp
 from datetime import datetime
@@ -19,7 +20,7 @@ import gpytorch
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
-HPARAM_EXP_DIR = os.path.join(DATA_DIR, 'tune-hparam-ntasks')
+HPARAM_EXP_DIR = os.path.join(DATA_DIR, 'tune-hparam')
 
 SEED = 28
 N_THREADS_PER_RUN = 1
@@ -29,7 +30,7 @@ TEST_SEEDS = [28, 29, 30, 31, 32]
 
 
 def main(args):
-    ray.init(num_cpus=args.num_cpus, memory=1500 * 1024**2, object_store_memory=300 * 1024**2)
+    ray.init(num_cpus=args.num_cpus, memory=3000 * 1024**2, object_store_memory=300 * 1024**2)
 
     def train_reg(config, reporter):
         sys.path.append(BASE_DIR)
@@ -39,22 +40,27 @@ def main(args):
         data_train, data_valid, _ = provide_data(dataset=args.dataset, seed=SEED)
 
         # 2) setup model
-        from meta_learn.GPR_meta_mll import GPRegressionMetaLearned
+        from meta_learn.GPR_meta_pac import GPRegressionMetaLearnedPAC
         torch.set_num_threads(N_THREADS_PER_RUN)
 
-        model = GPRegressionMetaLearned(data_train, **config)
+        model = GPRegressionMetaLearnedPAC(data_train, **config)
 
         # 3) train and evaluate model
         with gpytorch.settings.max_cg_iterations(300):
-            eval_period = 3000
+            log_period = 5000
             train_iter = 0
-            for i in range(config["num_iter_fit"] // eval_period):
-                loss = model.meta_fit(verbose=False, log_period=2000, n_iter=eval_period)
-                train_iter += eval_period
-                ll, rmse, calib_err = model.eval_datasets(data_valid)
-                reporter(timesteps_total=train_iter, loss=loss,
-                    test_rmse=rmse, test_ll=ll, calib_err=calib_err)
+            loss = 0.0
+            diagnostics_dict = {}
+            for i in range(config["num_iter_fit"] // log_period):
+                loss, diagnostics_dict = model.meta_fit(verbose=False, log_period=1000, eval_period=100000, n_iter=log_period)
+                train_iter += log_period
+                if i < config["num_iter_fit"] // log_period - 1:
+                    reporter(timesteps_total=train_iter, loss=loss,
+                        test_rmse=math.nan, test_ll=math.nan, calib_err=math.nan, **diagnostics_dict)
 
+            ll, rmse, calib_err = model.eval_datasets(data_valid, n_iter_meta_test=3000)
+            reporter(timesteps_total=train_iter, loss=loss,
+                     test_rmse=rmse, test_ll=ll, calib_err=calib_err, **diagnostics_dict)
     @ray.remote
     def train_test(config):
 
@@ -68,14 +74,14 @@ def main(args):
             data_train, _, data_test = provide_data(dataset=args.dataset, seed=SEED)
 
             # 2) Fit model
-            from meta_learn.GPR_meta_mll import GPRegressionMetaLearned
+            from meta_learn.GPR_meta_pac import GPRegressionMetaLearnedPAC
             torch.set_num_threads(N_THREADS_PER_RUN)
             with gpytorch.settings.max_cg_iterations(500):
-                model = GPRegressionMetaLearned(data_train, **config)
-                model.meta_fit(data_test, log_period=5000)
+                model = GPRegressionMetaLearnedPAC(data_train, **config)
+                model.meta_fit(data_test, log_period=1000, eval_period=100000,)
 
                 # 3) evaluate on test set
-                ll, rmse, calib_err = model.eval_datasets(data_test)
+                ll, rmse, calib_err = model.eval_datasets(data_test, n_iter_meta_test=3000)
 
             results_dict.update(ll=ll, rmse=rmse, calib_err=calib_err)
 
@@ -87,7 +93,7 @@ def main(args):
 
     assert args.metric in ['test_ll', 'test_rmse']
 
-    exp_name = 'tune_meta_mll_%s_kernel_%s' % (args.covar_module, args.dataset)
+    exp_name = 'tune_meta_pac_%s_kernel_%s'%(args.covar_module, args.dataset)
 
     if args.load_analysis:
         analysis_dir = os.path.join(HPARAM_EXP_DIR, exp_name)
@@ -96,27 +102,44 @@ def main(args):
         analysis = Analysis(analysis_dir)
     else:
         space = {
-            "weight_decay": hp.loguniform("weight_decay", math.log(1e-6), math.log(1.0)),
-            "lr_params": hp.loguniform("lr_params", math.log(1e-4), math.log(5e-3)),
-            "lr_decay": hp.loguniform("lr_decay", math.log(0.8), math.log(1.0)),
-            "task_batch_size": hp.choice("task_batch_size", [4, 10]),
+            "task_kl_weight": hp.loguniform("task_kl_weight", math.log(5e-2), math.log(1e0)),
+            "meta_kl_weight":  hp.loguniform("meta_kl_weight", math.log(1e-7), math.log(1e0)),
+            "lr": hp.loguniform("lr", math.log(1e-4), math.log(1e-3)),
+            "lr_decay": hp.loguniform("lr_decay", math.log(0.92), math.log(0.97)),
+            "posterior_lr_multiplier": hp.loguniform("posterior_lr_multiplier", math.log(1e0), math.log(10.)),
+            "svi_batch_size": hp.choice("svi_batch_size", [5, 10]),
+            "task_batch_size": hp.choice("task_batch_size", [5, 20]),
         }
 
         config = {
-                "num_samples": 200,
+                "num_samples": 150,
                 "config": {
-                    "num_iter_fit": 25000,
+                    "num_iter_fit": 40000,
                     'kernel_nn_layers': [32, 32, 32, 32],
                     'mean_nn_layers': [32, 32, 32, 32],
                     'random_seed': SEED,
                     'mean_module': 'NN',
-                    'covar_module': args.covar_module
+                    'covar_module': args.covar_module,
+                    'normalize_data': True,
+                    'cov_type': 'diag'
                 },
                 "stop": {
-                    "timesteps_total": 25000
+                    "timesteps_total": 100000
                 },
             }
 
+        config["config"].update()
+
+        # configs_to_evaluate = [{
+        #             "task_kl_weight": 1.0,
+        #             "meta_kl_weight": 1e-5,
+        #             "lr": 1e-3,
+        #             "lr_decay": 0.95,
+        #             "posterior_lr_multiplier": 5.0,
+        #             "svi_batch_size": 0,
+        #             "task_batch_size": 0,
+        #         },
+        #        ]
 
         # Run hyper-parameter search
 
@@ -124,10 +147,11 @@ def main(args):
             space,
             max_concurrent=args.num_cpus,
             metric=args.metric,
-            mode="max" if args.metric == 'test_ll' else "min")
+            mode="max" if args.metric == 'test_ll' else "min",
+       )
 
-        analysis = tune.run(train_reg, name=exp_name, search_alg=algo, verbose=1, raise_on_failed_trial=False,
-                 local_dir=HPARAM_EXP_DIR, **config)
+        analysis = custom_tune.run(train_reg, name=exp_name, search_alg=algo, verbose=1, raise_on_failed_trial=False,
+                 local_dir=HPARAM_EXP_DIR, resume=args.resume, **config)
 
     # Select N best configurations re-run train & test with 5 different seeds
 
@@ -159,9 +183,10 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run meta mll hyper-parameter search.')
     parser.add_argument('--covar_module', type=str, default='NN', help='type of kernel function')
-    parser.add_argument('--dataset', type=str, default='sin', help='dataset')
-    parser.add_argument('--num_cpus', type=int, default=64, help='dataset')
+    parser.add_argument('--dataset', type=str, default='swissfel', help='dataset')
+    parser.add_argument('--num_cpus', type=int, default=20, help='dataset')
     parser.add_argument('--load_analysis', type=bool, default=False, help='whether to load the analysis from existing results')
+    parser.add_argument('--resume', type=bool, default=False, help='whether to resume checkpointed tune session')
     parser.add_argument('--metric', type=str, default='test_ll', help='test metric to optimize')
     parser.add_argument('--n_test_runs', type=int, default=5, help='number of test runs')
 

@@ -10,49 +10,78 @@ import experiments.hyperparam_search.meta_mll_hyperparm as meta_mll_hparam
 
 import experiments.hyperparam_search.meta_svgd_hyperparam as meta_svgd_hparam
 import experiments.hyperparam_search.meta_vi_hyperparam as meta_vi_hparam
+import experiments.hyperparam_search.meta_pac_hyperparam as meta_pac_hyperparam
 
-CLUSTER = False
-DRY = False
-
-NUM_CPUS = 20
-
-command_list = []
-
-for hparam_search_module in [meta_mll_hparam, meta_svgd_hparam, meta_vi_hparam]:
-
-    exp_config = {
-        'dataset': ['cauchy_20', 'sin_20', 'physionet_0', 'physionet_2', 'swissfel'],
-        'covar_module': ['NN'],
-        'num_cpus': [NUM_CPUS]
-    }
-    command_list += generate_launch_commands(hparam_search_module, exp_config, check_flags=False)
-
-print(command_list)
+from absl import flags
+from absl import app
 
 
-if CLUSTER:
-    cluster_cmds = []
-    for python_cmd in command_list:
-        bsub_cmd = 'bsub' \
-                   ' -W 23:00'\
-                   ' -R "rusage[mem=4500]"' \
-                   ' -R "rusage[ngpus_excl_p=1]"' \
-                   ' -n %i '% (NUM_CPUS)
-        cluster_cmds.append(bsub_cmd + ' ' + python_cmd)
+flags.DEFINE_integer('n_cpus', default=32, help='number of cpus to use')
+flags.DEFINE_integer('n_gpus', default=1, help='number of gpus to use')
+flags.DEFINE_string('algos', default='pac', help='specifies which dataset to use')
+flags.DEFINE_string('metric', default='test_ll', help='specifies which metric to optimize')
+flags.DEFINE_boolean('cluster', default=False, help='whether to submit jobs with bsub')
+flags.DEFINE_boolean('dry', default=False, help='whether to only print launch commands')
+flags.DEFINE_boolean('load_analysis', default=False, help='whether to load the analysis from existing dirs')
+flags.DEFINE_boolean('resume', default=False, help='whether to resume checkpointed tune session')
 
-    answer = input("About to submit %i compute jobs to the cluster. Proceed? [yes/no]\n"%len(cluster_cmds))
-    if answer == 'yes':
-        for cmd in cluster_cmds:
-            if DRY:
-                print(cmd)
-            else:
-                os.system(cmd)
+FLAGS = flags.FLAGS
 
-else:
-    answer = input("About to run %i compute jobs in a for loop. Proceed? [yes/no]\n"%len(command_list))
-    if answer == 'yes':
-        for cmd in command_list:
-            if DRY:
-                print(cmd)
-            else:
-                os.system(cmd)
+
+algo_map_dict = {'map': meta_mll_hparam,
+                 'vi': meta_vi_hparam,
+                 'svgd': meta_svgd_hparam,
+                 'pac': meta_pac_hyperparam}
+
+def main(argv):
+    hparam_search_modules = [algo_map_dict[algo_str] for algo_str in FLAGS.algos.split(',')]
+
+    command_list = []
+
+    for hparam_search_module in hparam_search_modules:
+
+        exp_config = {
+            'dataset': ['cauchy_20', 'sin_20', 'physionet_0', 'physionet_2', 'swissfel'],
+            'covar_module': ['NN'],
+            'num_cpus': [2 * FLAGS.n_cpus],
+            'metric': [FLAGS.metric]
+        }
+        if FLAGS.load_analysis:
+            exp_config['load_analysis'] = [True]
+        if FLAGS.resume:
+            exp_config['resume'] = [True]
+        command_list += generate_launch_commands(hparam_search_module, exp_config, check_flags=False)
+
+    print(command_list)
+
+
+    if FLAGS.cluster:
+        cluster_cmds = []
+        for python_cmd in command_list:
+            bsub_cmd = 'bsub' \
+                       ' -W %i:59'%(3 if FLAGS.load_analysis else 23) + \
+                       ' -R "rusage[mem=6000]"' + \
+                       ' -R "rusage[ngpus_excl_p=%i]"'%FLAGS.n_gpus + \
+                       ' -R "span[hosts=1]"' \
+                       ' -n %i '% (FLAGS.n_cpus)
+            cluster_cmds.append(bsub_cmd + ' ' + python_cmd)
+
+        answer = input("About to submit %i compute jobs to the cluster. Proceed? [yes/no]\n"%len(cluster_cmds))
+        if answer == 'yes':
+            for cmd in cluster_cmds:
+                if FLAGS.dry:
+                    print(cmd)
+                else:
+                    os.system(cmd)
+
+    else:
+        answer = input("About to run %i compute jobs in a for loop. Proceed? [yes/no]\n"%len(command_list))
+        if answer == 'yes':
+            for cmd in command_list:
+                if FLAGS.dry:
+                    print(cmd)
+                else:
+                    os.system(cmd)
+
+if __name__ == '__main__':
+    app.run(main)
