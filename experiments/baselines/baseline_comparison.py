@@ -227,7 +227,7 @@ def main(args):
         'seed': MODEL_SEEDS,
         'covar_module': ['SE'],
         'mean_module': ['constant'],
-        'learning_mode': ['both', 'vanilla'],
+        'learning_mode': ['vanilla'],
         'num_iter_fit': 20000,
         'mean_nn_layers': [LAYER_SIZES],
     }

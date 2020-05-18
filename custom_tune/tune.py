@@ -21,7 +21,7 @@ from ray.tune.schedulers import (HyperBandScheduler, AsyncHyperBandScheduler,
 from ray.tune.web_server import TuneServer
 
 
-from pacoh.experiments.custom_tune.trial_runner import TrialRunner
+from custom_tune.trial_runner import TrialRunner
 logger = logging.getLogger(__name__)
 
 _SCHEDULERS = {

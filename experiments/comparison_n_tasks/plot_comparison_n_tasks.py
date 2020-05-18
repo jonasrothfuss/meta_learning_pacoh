@@ -6,6 +6,17 @@ import glob
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 
+from collections import OrderedDict
+
+label_mapping_dict = OrderedDict([
+    ('pacoh_mll', 'PACOH-MAP'),
+    ('pacoh_vi', 'PACOH-VI'),
+    ('pacoh_svgd', 'PACOH-SVGD'),
+    ('gpr_meta_mll', 'MLL'),
+    ('neural_process', 'NP'),
+    ('maml', 'MAML'),
+
+])
 
 """ --- Baselines --- """
 
@@ -110,7 +121,7 @@ for csv_file in csv_files:
 
 from matplotlib import pyplot as plt
 
-fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+fig, axes = plt.subplots(1, 2, figsize=(8, 4))
 
 lines = []
 
@@ -121,14 +132,35 @@ for i, dataset in enumerate(DATASETS):
         x, y_mean, y_std = map(lambda x:np.array(x), zip(*sorted(resuts_array, key =lambda x: x[0])))
 
         lines.append(axes[i].plot(x, y_mean, label=method)[0])
-        axes[i].fill_between(x, y_mean - y_std * (1.96 / np.sqrt(25)), y_mean + y_std * (1.96 / np.sqrt(25)), alpha=0.2)
+        axes[i].fill_between(x, y_mean - y_std * (1.96 / np.sqrt(5)), y_mean + y_std * (1.96 / np.sqrt(5)), alpha=0.2)
         axes[i].set_title(dataset)
         axes[i].set_ylabel('test RMSE')
         axes[i].set_xscale('log')
-        axes[i].set_yscale('log')
+        #axes[i].set_yscale('log')
         axes[i].set_xlabel('number of tasks')
 
-fig.legend()
+
+from matplotlib.ticker import ScalarFormatter
+axes[0].set_ylim((0.20, 1.05))
+for i in [0, 1]:
+    axes[i].set_xticks(ticks=[5, 10, 20, 50, 100, 200])
+    for axis in [axes[i].xaxis, axes[i].yaxis]:
+        axis.set_major_formatter(ScalarFormatter())
+
+# legend
+
+label_handle_dict = dict(zip(*reversed(axes[0].get_legend_handles_labels())))
+assert set(label_handle_dict.keys()) == set(label_mapping_dict.keys())
+handles = []
+labels = []
+for key, label in label_mapping_dict.items():
+    labels.append(label)
+    handles.append(label_handle_dict[key])
+
+lgd = axes[0].legend(handles, labels)
+
+# axes[0].lines, ('pacoh-map (meta-train tasks)','pacoh-map (meta-test tasks)',
+#                                'mll (meta-train tasks)','mll (meta-test tasks)')
 fig.show()
 fig.savefig('comparison_n_tasks.pdf')
 
