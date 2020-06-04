@@ -6,12 +6,13 @@ from matplotlib import pyplot as plt
 from matplotlib.ticker import ScalarFormatter
 from experiments.util import collect_exp_results
 
-
+params = {'legend.fontsize': 9.5,}
+plt.rcParams.update(params)
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 
 lines = []
-fig, axes = plt.subplots(1, 2, figsize=(9, 4))
+fig, axes = plt.subplots(1, 2, figsize=(9, 3))
 
 ALGO = 'pacoh-map'
 
@@ -125,8 +126,8 @@ for i in [0, 1]:
 # axes[1].legend(axes[0].lines, ('pacoh-map (meta-train tasks)','pacoh-map (meta-test tasks)',
 #                                'mll (meta-train tasks)','mll (meta-test tasks)') )
 fig.suptitle('')
-lgd = axes[0].legend(axes[0].lines, ('pacoh-map (meta-train tasks)','pacoh-map (meta-test tasks)',
-                               'mll (meta-train tasks)','mll (meta-test tasks)'))
+lgd = axes[0].legend(axes[0].lines, ('PACOH-MAP (meta-train tasks)','PACOH-MAP (meta-test tasks)',
+                               'MLL (meta-train tasks)','MLL (meta-test tasks)'))
 #fig.tight_layout(rect=[0.5, 0.2, 0.5, 1])
 
 

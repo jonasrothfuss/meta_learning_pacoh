@@ -509,7 +509,7 @@ if __name__ == "__main__":
             plt.title('GPR meta PAC meta-test Nr%i (itrs = %i)' % (j, itrs))
             plt.show()
 
-    ll, rmse, calib_err = gp_model.eval_datasets(meta_test_data, n_iter_meta_test=2000)
+    ll, rmse, calib_err = gp_model.eval_datasets(meta_test_data, n_iter_meta_test=3000)
     print('ll', ll)
     print('rmse', rmse)
     print('calib_err', calib_err)

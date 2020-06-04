@@ -40,7 +40,7 @@ def main(argv):
             'num_layers': [4],
             'layer_size': [32],
             'n_iter_fit': [50000],
-            'lr_inner': [0.01, 0.02, 0.05],
+            'lr_inner': [0.1, 0.2, 0.3, 0.5],
             'n_train_tasks': [2, 4, 8, 16, 32, 64, 128, 256, 512],
             'n_test_tasks': [200],
             'n_context_samples': n_context_samples,
