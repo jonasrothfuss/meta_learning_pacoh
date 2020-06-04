@@ -66,23 +66,24 @@ log_likelihood, rmse, calib_error = meta_gp.eval_datasets(meta_test_data)
 Below we point to the experiment scripts that were used to generate the results reported in the paper. 
 Note that all of the experiment scripts use multiprocessing and were written for machines / high-performance 
 clusters designed heavy workloads. Please take this into consideration, before launching any of the experiment scripts.
+
 ### Meta-overfitting experiments
 
 To run the experiments:
 
 ```bash
-python experiments/meta-overfitting/meta-overfitting-sin.py
-python experiments/meta-overfitting/meta-overfitting-cauchy.py
-python experiments/meta-overfitting/meta-overfitting-swissfel.py
+python experiments/meta_overfitting_v2/meta-overfitting-pacoh-map.py
+python experiments/meta_overfitting_v2/meta-overfitting-mll.py
+
 ``` 
 
 To generate the plots in the paper:
 
 ```bash
-python experiments/meta-overfitting/plots-meta-overfitting-paper.py
+python experiments/meta_overfitting_v2/plots_meta_overfitting_v2_map_vs_mll_paper.py
 ``` 
 
-### Hyper-Parameter Search for PACOH
+### Hyper-Parameter Search for PACOH and MLAP
 The following command will launch multiple hyper-parameter tuning session with 
 [ray tune](https://ray.readthedocs.io/en/latest/tune.html), based on [hyperopt](http://hyperopt.github.io/hyperopt/).
 ```bash
