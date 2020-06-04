@@ -40,7 +40,7 @@ def main(args):
         data_train, data_valid, _ = provide_data(dataset=args.dataset, seed=SEED)
 
         # 2) setup model
-        from meta_learn.GPR_meta_pac import GPRegressionMetaLearnedPAC
+        from meta_learn.GPR_meta_mlap import GPRegressionMetaLearnedPAC
         torch.set_num_threads(N_THREADS_PER_RUN)
 
         model = GPRegressionMetaLearnedPAC(data_train, **config)
@@ -74,7 +74,7 @@ def main(args):
             data_train, _, data_test = provide_data(dataset=args.dataset, seed=SEED)
 
             # 2) Fit model
-            from meta_learn.GPR_meta_pac import GPRegressionMetaLearnedPAC
+            from meta_learn.GPR_meta_mlap import GPRegressionMetaLearnedPAC
             torch.set_num_threads(N_THREADS_PER_RUN)
             with gpytorch.settings.max_cg_iterations(500):
                 model = GPRegressionMetaLearnedPAC(data_train, **config)

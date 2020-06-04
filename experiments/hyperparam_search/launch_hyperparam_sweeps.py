@@ -10,7 +10,7 @@ import experiments.hyperparam_search.meta_mll_hyperparm as meta_mll_hparam
 
 import experiments.hyperparam_search.meta_svgd_hyperparam as meta_svgd_hparam
 import experiments.hyperparam_search.meta_vi_hyperparam as meta_vi_hparam
-import experiments.hyperparam_search.meta_pac_hyperparam as meta_pac_hyperparam
+import experiments.hyperparam_search.meta_mlap_hyperparam as meta_pac_hyperparam
 
 from absl import flags
 from absl import app

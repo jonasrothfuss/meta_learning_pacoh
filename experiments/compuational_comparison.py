@@ -37,7 +37,7 @@ for dataset in DATASETS:
                                          mean_nn_layers=NN_LAYERS, svi_batch_size=5,
                                          kernel_nn_layers=NN_LAYERS, cov_type='diag', normalize_data=True)
 
-    from meta_learn.GPR_meta_pac import GPRegressionMetaLearnedPAC
+    from meta_learn.GPR_meta_mlap import GPRegressionMetaLearnedPAC
 
     model_mlap = GPRegressionMetaLearnedPAC(meta_train_data, num_iter_fit=1000,
                                           svi_batch_size=5, covar_module='NN', mean_module='NN', mean_nn_layers=NN_LAYERS,
