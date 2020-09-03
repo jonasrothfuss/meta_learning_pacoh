@@ -144,7 +144,7 @@ class MNISTRegressionDataset(MetaDataset):
         self.test_images = mnist.download_and_parse_mnist_file('t10k-images-idx3-ubyte.gz', target_dir=mnist_dir)
 
         self.train_images = self.train_images / 255.0
-        self.test_images = self.train_images / 255.0
+        self.test_images = self.test_images / 255.0
 
     def generate_meta_train_data(self, n_tasks, n_samples):
 
