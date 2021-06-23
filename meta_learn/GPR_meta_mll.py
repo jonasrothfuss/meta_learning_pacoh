@@ -8,6 +8,7 @@ from meta_learn.models import LearnedGPRegressionModel, NeuralNetwork, AffineTra
 from meta_learn.util import _handle_input_dimensionality, DummyLRScheduler
 from meta_learn.abstract import RegressionModelMetaLearned
 from config import device
+from copy import deepcopy
 
 class GPRegressionMetaLearned(RegressionModelMetaLearned):
 
@@ -77,6 +78,9 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
         self._setup_optimizer(optimizer, lr_params, lr_decay)
 
         self.fitted = False
+        self.trained_likelihood = None
+        self.adapted_model = None
+        self.adapted_likelihood = None
 
 
     def meta_fit(self, valid_tuples=None, verbose=True, log_period=500, n_iter=None):
@@ -144,6 +148,9 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
 
         for task_dict in self.task_dicts: task_dict['model'].eval()
         self.likelihood.eval()
+        # not sure what is happening int ExactGP, if it modifies likelihood or not. Thus as safety net I am
+        # cloning it and for each adaptation using the clean trained likelihood
+        self.trained_likelihood = deepcopy(self.likelihood)
         return loss.item()
 
     def predict(self, context_x, context_y, test_x, return_density=False):
@@ -185,6 +192,41 @@ class GPRegressionMetaLearned(RegressionModelMetaLearned):
         if return_density:
             return pred_dist_transformed
         else:
+            pred_mean = pred_dist_transformed.mean
+            pred_std = pred_dist_transformed.stddev
+            return pred_mean.cpu().numpy(), pred_std.cpu().numpy()
+
+    def adapt_gp_to_context(self, context_x, context_y) -> None:
+        context_x, context_y = _handle_input_dimensionality(context_x, context_y)
+        # normalize data and convert to tensor
+        context_x, context_y = self._prepare_data_per_task(context_x, context_y)
+
+        # take trained likelihood
+        assert self.trained_likelihood is not None
+        self.likelihood = deepcopy(self.trained_likelihood)
+        with torch.no_grad():
+            # compute posterior given the context data
+            gp_model = LearnedGPRegressionModel(context_x, context_y, self.likelihood,
+                                                learned_kernel=self.nn_kernel_map, learned_mean=self.nn_mean_fn,
+                                                covar_module=self.covar_module, mean_module=self.mean_module)
+            gp_model.eval()
+            self.likelihood.eval()
+            self.adapted_model = gp_model
+            self.adapted_likelihood = self.likelihood
+
+    def predict_with_adapted_gp(self, test_x):
+        test_x = _handle_input_dimensionality(test_x)
+
+        assert self.adapted_model is not None
+        assert self.adapted_likelihood is not None
+        # normalize data and convert to tensor
+        test_x = self._normalize_data(X=test_x, Y=None)
+        test_x = torch.from_numpy(test_x).float().to(device)
+
+        with torch.no_grad():
+            pred_dist = self.adapted_likelihood(self.adapted_model(test_x))
+            pred_dist_transformed = AffineTransformedDistribution(pred_dist, normalization_mean=self.y_mean,
+                                                                  normalization_std=self.y_std)
             pred_mean = pred_dist_transformed.mean
             pred_std = pred_dist_transformed.stddev
             return pred_mean.cpu().numpy(), pred_std.cpu().numpy()
