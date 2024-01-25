@@ -14,6 +14,9 @@ in the the **meta_learn** package.
 The **experiments** directory holds code for synthetic task-environments and provides the necessary scripts to reproduce 
 the experimental results reported in the paper.
 
+## Compute framework
+The code in this repository builds on [PyTorch](https://pytorch.org/). A similar implementation of PACOH-GP in JAX can be found in the [pacoh-jax](https://github.com/nicolasemmenegger/pacoh-jax) repository of [Nicolas Emmenegger](https://github.com/nicolasemmenegger).
+
 ## Installation
 To install the minimal dependencies needed to use the meta-learning algorithms, run in the main directory of this repository
 ```bash
@@ -25,7 +28,6 @@ To do so, please run in the main directory of this repository
 ```bash
 pip install -r requirements.txt
 ``` 
-
 
 ## Usage
 The following code snippet demonstrates the core functionality of the meta-learners provided in this repository. 
